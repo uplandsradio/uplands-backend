@@ -1,0 +1,37 @@
+// controllers/streamController.js
+const pool = require('../config/db');
+
+async function getLiveStream(req, res) {
+  const liveUrl = process.env.RADIO_STREAM || process.env.LIVE_STREAM_URL || 'http://82.145.41.50:17263';
+  const now = new Date();
+  const dayMap = ['sun','mon','tue','wed','thu','fri','sat'];
+  const today = dayMap[now.getDay()];
+  const curTime = now.toTimeString().slice(0,8);
+
+  try {
+    const r = await pool.query(`
+      SELECT s.id, s.title, s.start_time, s.end_time, s.days,
+        COALESCE(json_agg(p.name) FILTER (WHERE p.name IS NOT NULL), '[]') AS presenters
+      FROM shows s
+      LEFT JOIN presenters p ON p.show_id = s.id
+      GROUP BY s.id
+    `);
+
+    const activeShow = r.rows.find(s => {
+      const days = s.days || [];
+      if (!days.includes(today)) return false;
+      const start = s.start_time;
+      const end = s.end_time;
+      return start <= end ? (curTime >= start && curTime <= end) : (curTime >= start || curTime <= end);
+    });
+
+    const showData = activeShow || null;
+    return res.json({ url: liveUrl, show: showData });
+  } catch (e) {
+    console.warn('live-stream controller DB fetch failed:', e.message);
+    // fallback minimal show
+    return res.json({ url: liveUrl, show: null });
+  }
+}
+
+module.exports = { getLiveStream };

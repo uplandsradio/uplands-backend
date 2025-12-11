@@ -1,9 +1,11 @@
+// db/seedShows.js
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // 🔹 SSL kwa Render
 });
 
 // Shows data
@@ -35,13 +37,13 @@ const shows = [
   try {
     for (const s of shows) {
       await pool.query(
-        'INSERT INTO shows(title, start_time, end_time, days) VALUES($1,$2,$3,$4)',
+        'INSERT INTO shows(title, start_time, end_time, days) VALUES($1,$2,$3,$4) ON CONFLICT(title) DO NOTHING',
         [s.title, s.start_time, s.end_time, s.days]
       );
     }
-    console.log('Shows seeded successfully!');
+    console.log('✅ Shows seeded successfully!');
   } catch (err) {
-    console.error('Error seeding shows:', err);
+    console.error('❌ Error seeding shows:', err);
   } finally {
     await pool.end();
   }

@@ -45,7 +45,7 @@ const upload = multer({ storage });
 app.use('/uploads', express.static(uploadDir));
 
 // -----------------------------------------
-// STATIC FALLBACK (if DB down)
+// STATIC FALLBACK (if DB fails)
 // -----------------------------------------
 const fallbackShows = [
   { id:1, title:'Kipindi Maalumu', start_time:'06:00:00', end_time:'10:00:00', days:['mon','tue','wed','thu','fri','sat'], presenters:['Default Presenter'] },
@@ -53,13 +53,13 @@ const fallbackShows = [
 ];
 
 // -----------------------------------------
-// ROUTES
+// ROOT ROUTE
 // -----------------------------------------
-
-// Health
 app.get("/", (_, res) => res.send("Uplands API Running"));
 
-// ---------------- SHOWS -----------------
+// =============================================================
+// SHOWS
+// =============================================================
 app.get('/api/shows', async (_, res) => {
   try {
     const r = await pool.query(`
@@ -72,16 +72,17 @@ app.get('/api/shows', async (_, res) => {
     `);
 
     if (r.rows.length) return res.json(r.rows);
-  } catch(e) {}
+  } catch {}
 
   res.json(fallbackShows);
 });
 
+// =============================================================
+// SHOWS NOW (Current show) – Improved with Date comparison
+// =============================================================
 app.get('/api/shows/now', async (_, res) => {
   const now = new Date();
-  const dayMap = ['sun','mon','tue','wed','thu','fri','sat'];
-  const today = dayMap[now.getDay()];
-  const time = now.toTimeString().slice(0,8);
+  const today = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
 
   try {
     const r = await pool.query(`
@@ -92,13 +93,23 @@ app.get('/api/shows/now', async (_, res) => {
       GROUP BY s.id
     `);
 
-    const active = r.rows.find(s =>
-      s.days?.includes(today) &&
-      (time >= s.start_time && time <= s.end_time)
-    );
+    const active = r.rows.find(s => {
+      if (!s.days.includes(today)) return false;
+
+      const [sh, sm, ss] = s.start_time.split(':').map(Number);
+      const [eh, em, es] = s.end_time.split(':').map(Number);
+
+      const start = new Date(now);
+      start.setHours(sh, sm, ss, 0);
+
+      const end = new Date(now);
+      end.setHours(eh, em, es, 0);
+
+      return now >= start && now < end; // end exclusive
+    });
 
     return res.json(active || null);
-  } catch(e) {}
+  } catch {}
 
   res.json(fallbackShows.find(s => s.days.includes(today)) || null);
 });
@@ -114,7 +125,7 @@ app.post('/api/shows', async (req, res) => {
     `, [title,start_time,end_time,days]);
 
     res.json(r.rows[0]);
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to create show" });
   }
 });
@@ -126,12 +137,13 @@ app.put('/api/shows/:id', async (req,res) => {
 
   try {
     const r = await pool.query(`
-      UPDATE shows SET title=$1,start_time=$2,end_time=$3,days=$4
+      UPDATE shows 
+      SET title=$1,start_time=$2,end_time=$3,days=$4
       WHERE id=$5 RETURNING *
     `, [title,start_time,end_time,days,id]);
 
     res.json(r.rows[0]);
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to update show" });
   }
 });
@@ -141,17 +153,19 @@ app.delete('/api/shows/:id', async (req,res) => {
   try {
     await pool.query('DELETE FROM shows WHERE id=$1', [req.params.id]);
     res.json({ success: true });
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to delete show" });
   }
 });
 
-// ---------------- PRESENTERS -----------------
+// =============================================================
+// PRESENTERS
+// =============================================================
 app.get('/api/presenters', async (_, res) => {
   try {
     const r = await pool.query('SELECT * FROM presenters ORDER BY id');
     res.json(r.rows);
-  } catch(e) {
+  } catch {
     res.json([]);
   }
 });
@@ -170,7 +184,7 @@ app.post('/api/presenters', upload.single("file"), async (req,res) => {
     `,[name,show_id,photo_url,bio]);
 
     res.json(r.rows[0]);
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to create presenter" });
   }
 });
@@ -186,7 +200,7 @@ app.put('/api/presenters/:id', async (req,res) => {
     `,[name,show_id,photo_url,bio,req.params.id]);
 
     res.json(r.rows[0]);
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to update presenter" });
   }
 });
@@ -196,12 +210,14 @@ app.delete('/api/presenters/:id', async (req,res) => {
   try {
     await pool.query('DELETE FROM presenters WHERE id=$1', [req.params.id]);
     res.json({ success:true });
-  } catch(e) {
+  } catch {
     res.status(500).json({ error:"Failed to delete presenter" });
   }
 });
 
-// ---------------- COMMENTS -----------------
+// =============================================================
+// COMMENTS
+// =============================================================
 let comments = [];
 
 app.post('/api/comments', (req,res) => {
@@ -222,12 +238,12 @@ app.post('/api/comments', (req,res) => {
 
 app.get('/api/comments', (_, res) => res.json(comments));
 
-// Delete comment (requires admin key)
+// Secure delete
 app.delete('/api/comments/:id', (req,res) => {
-  const adminKey = req.headers['x-admin-key'];
+  const key = req.headers['x-admin-key'];
   const ADMIN_KEY = process.env.ADMIN_KEY || "uplands-secret";
 
-  if (adminKey !== ADMIN_KEY)
+  if (key !== ADMIN_KEY)
     return res.status(403).json({ error:"Forbidden" });
 
   const idx = comments.findIndex(c => c.id == req.params.id);
@@ -237,18 +253,21 @@ app.delete('/api/comments/:id', (req,res) => {
   res.json({ success:true });
 });
 
-// ---------------- PLAYLIST -----------------
+// =============================================================
+// PLAYLIST
+// =============================================================
 app.get('/api/playlist', (_, res) => {
   res.json({
     playlist: ['https://cdn.uplands.fm/jingles/j1.mp3']
   });
 });
 
-// ---------------- LIVE STREAM -----------------
+// =============================================================
+// LIVE STREAM – Improved
+// =============================================================
 app.get('/api/live-stream', async (_, res) => {
   const liveUrl = process.env.LIVE_STREAM_URL || "http://82.145.41.50:17263";
   const now = new Date();
-  const time = now.toTimeString().slice(0,8);
   const day = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
 
   try {
@@ -260,13 +279,23 @@ app.get('/api/live-stream', async (_, res) => {
       GROUP BY s.id
     `);
 
-    const active = r.rows.find(s =>
-      s.days?.includes(day) &&
-      (time >= s.start_time && time <= s.end_time)
-    );
+    const active = r.rows.find(s => {
+      if (!s.days.includes(day)) return false;
+
+      const [sh, sm, ss] = s.start_time.split(':').map(Number);
+      const [eh, em, es] = s.end_time.split(':').map(Number);
+
+      const start = new Date(now);
+      start.setHours(sh, sm, ss, 0);
+
+      const end = new Date(now);
+      end.setHours(eh, em, es, 0);
+
+      return now >= start && now < end;
+    });
 
     return res.json({ url: liveUrl, show: active || null });
-  } catch(e) {}
+  } catch {}
 
   res.json({
     url: liveUrl,
@@ -274,14 +303,16 @@ app.get('/api/live-stream', async (_, res) => {
   });
 });
 
-// ---------------- ADMIN CHECK -----------------
+// =============================================================
+// ADMIN CHECK
+// =============================================================
 app.get('/api/check-admin', (req,res) => {
   const ADMIN_KEY = process.env.ADMIN_KEY || "uplands-secret";
   res.json({ isAdmin: req.query.key === ADMIN_KEY });
 });
 
-// -----------------------------------------
+// =============================================================
 // START SERVER
-// -----------------------------------------
+// =============================================================
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`API Running on port ${PORT}`));

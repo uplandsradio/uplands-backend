@@ -1,16 +1,12 @@
-Uplands Radio Backend - Starter
+# Uplands Backend (Node + pg)
 
-This backend is Node.js + Express starter that provides:
-- shows endpoint (GET /api/shows)
-- now-playing calculation (GET /api/shows/now)
-- playlist endpoint (GET /api/playlist)
-- comments endpoints (POST /api/comments)
+Run locally:
+1. copy `.env` with DATABASE_URL, PORT, ADMIN_KEY, RADIO_STREAM
+2. npm install
+3. npm run dev
 
-Setup:
-1. cd backend
-2. copy .env.example to .env and set values
-3. npm install
-4. npm run dev
-
-Database:
-- Example SQL schema provided in db/schema.sql
+Deploy:
+- Push to GitHub and create Render Web Service.
+- Build command: `npm install`
+- Start command: `node server.js`
+- Set env vars on Render: DATABASE_URL, PORT (optional), ADMIN_KEY, RADIO_STREAM
