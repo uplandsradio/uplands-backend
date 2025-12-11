@@ -47,7 +47,7 @@ const upload = multer({ storage });
 app.use('/uploads', express.static(uploadDir));
 
 // -----------------------------------------
-// STATIC FALLBACK (if DB fails)
+// STATIC FALLBACK
 // -----------------------------------------
 const fallbackShows = [
   { id:1, title:'Kipindi Maalumu', start_time:'06:00:00', end_time:'10:00:00', days:['mon','tue','wed','thu','fri','sat'], presenters:['Default Presenter'] },
@@ -60,7 +60,7 @@ const fallbackShows = [
 app.get("/", (_, res) => res.send("Uplands API Running"));
 
 // =============================================================
-// SHOWS
+// SHOWS: LIST ALL
 // =============================================================
 app.get('/api/shows', async (_, res) => {
   try {
@@ -80,7 +80,7 @@ app.get('/api/shows', async (_, res) => {
 });
 
 // =============================================================
-// SHOWS NOW – SMART LOGIC (No delays, conflict-safe, midnight-safe)
+// SHOW NOW – **Smart Logic (Time + Day + Midnight Cross Fix)**
 // =============================================================
 app.get('/api/shows/now', async (_, res) => {
   try {
@@ -108,7 +108,7 @@ app.get('/api/shows/now', async (_, res) => {
         const end = new Date(now);
         end.setHours(eh, em, es, 0);
 
-        // midnight crossing fix
+        // Fix for Shows crossing midnight
         if (end <= start) {
           end.setDate(end.getDate() + 1);
         }
@@ -116,14 +116,14 @@ app.get('/api/shows/now', async (_, res) => {
         return { ...s, start, end };
       });
 
-    // choose show that is truly active
+    // **Pick the correct active show – not expired, not future**
     const active = validShows
       .filter(s => now >= s.start && now < s.end)
       .sort((a, b) => b.start - a.start)[0] || null;
 
     return res.json(active);
   } catch (e) {
-    console.log("Error in /api/shows/now:", e);
+    console.log("Error /api/shows/now:", e);
     return res.json(null);
   }
 });
@@ -212,6 +212,7 @@ app.post('/api/presenters', upload.single("file"), async (req,res) => {
 // Update presenter
 app.put('/api/presenters/:id', async (req,res) => {
   const { name, show_id, photo_url, bio } = req.body;
+
   try {
     const r = await pool.query(`
       UPDATE presenters
@@ -236,7 +237,7 @@ app.delete('/api/presenters/:id', async (req,res) => {
 });
 
 // =============================================================
-// COMMENTS
+// COMMENTS (In-memory moderation)
 // =============================================================
 let comments = [];
 
@@ -283,7 +284,7 @@ app.get('/api/playlist', (_, res) => {
 });
 
 // =============================================================
-// LIVE STREAM – Uses Same Smart Logic
+// LIVE STREAM – Uses Smart Logic
 // =============================================================
 app.get('/api/live-stream', async (_, res) => {
   const liveUrl = process.env.LIVE_STREAM_URL || "http://82.145.41.50:17263";
