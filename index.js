@@ -1,6 +1,8 @@
 // ------------------------------------------------------------
 // UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads)
 // ------------------------------------------------------------
+process.env.TZ = "Africa/Nairobi";
+
 import dotenv from 'dotenv';
 dotenv.config();
 
