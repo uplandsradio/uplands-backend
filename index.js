@@ -108,6 +108,7 @@ app.get('/api/shows/now', async (_, res) => {
         const end = new Date(now);
         end.setHours(eh, em, es, 0);
 
+        // Fix for Shows crossing midnight
         if (end <= start) {
           end.setDate(end.getDate() + 1);
         }
@@ -115,6 +116,7 @@ app.get('/api/shows/now', async (_, res) => {
         return { ...s, start, end };
       });
 
+    // **Pick the correct active show – not expired, not future**
     const active = validShows
       .filter(s => now >= s.start && now < s.end)
       .sort((a, b) => b.start - a.start)[0] || null;
@@ -207,24 +209,19 @@ app.post('/api/presenters', upload.single("file"), async (req,res) => {
   }
 });
 
-// Update presenter – **Maboresho ya Partial Update**
+// Update presenter
 app.put('/api/presenters/:id', async (req,res) => {
   const { name, show_id, photo_url, bio } = req.body;
 
   try {
     const r = await pool.query(`
       UPDATE presenters
-      SET
-        name = COALESCE($1, name),
-        show_id = COALESCE(NULLIF($2,'')::int, show_id),
-        photo_url = COALESCE($3, photo_url),
-        bio = COALESCE($4, bio)
+      SET name=$1,show_id=$2,photo_url=$3,bio=$4
       WHERE id=$5 RETURNING *
-    `, [name, show_id, photo_url, bio, req.params.id]);
+    `,[name,show_id,photo_url,bio,req.params.id]);
 
     res.json(r.rows[0]);
-  } catch (e) {
-    console.error("❌ Failed to update presenter:", e);
+  } catch {
     res.status(500).json({ error:"Failed to update presenter" });
   }
 });
