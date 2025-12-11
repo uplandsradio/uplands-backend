@@ -78,43 +78,57 @@ app.get('/api/shows', async (_, res) => {
 });
 
 // =============================================================
-// SHOWS NOW (Current show) – Improved with Date comparison
+// SHOWS NOW – SMART LOGIC (No delays, conflict-safe, midnight-safe)
 // =============================================================
 app.get('/api/shows/now', async (_, res) => {
-  const now = new Date();
-  const today = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
-
   try {
+    const now = new Date();
+    const today = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
+
     const r = await pool.query(`
-      SELECT s.id, s.title, s.start_time, s.end_time, s.days,
+      SELECT 
+        s.id, s.title, s.start_time, s.end_time, s.days,
         COALESCE(json_agg(p.name) FILTER (WHERE p.name IS NOT NULL),'[]') AS presenters
       FROM shows s
       LEFT JOIN presenters p ON p.show_id = s.id
       GROUP BY s.id
     `);
 
-    const active = r.rows.find(s => {
-      if (!s.days.includes(today)) return false;
+    const validShows = r.rows
+      .filter(s => s.days.includes(today))
+      .map(s => {
+        const [sh, sm, ss] = s.start_time.split(':').map(Number);
+        const [eh, em, es] = s.end_time.split(':').map(Number);
 
-      const [sh, sm, ss] = s.start_time.split(':').map(Number);
-      const [eh, em, es] = s.end_time.split(':').map(Number);
+        const start = new Date(now);
+        start.setHours(sh, sm, ss, 0);
 
-      const start = new Date(now);
-      start.setHours(sh, sm, ss, 0);
+        const end = new Date(now);
+        end.setHours(eh, em, es, 0);
 
-      const end = new Date(now);
-      end.setHours(eh, em, es, 0);
+        // midnight crossing fix
+        if (end <= start) {
+          end.setDate(end.getDate() + 1);
+        }
 
-      return now >= start && now < end; // end exclusive
-    });
+        return { ...s, start, end };
+      });
 
-    return res.json(active || null);
-  } catch {}
+    // choose show that is truly active
+    const active = validShows
+      .filter(s => now >= s.start && now < s.end)
+      .sort((a, b) => b.start - a.start)[0] || null;
 
-  res.json(fallbackShows.find(s => s.days.includes(today)) || null);
+    return res.json(active);
+  } catch (e) {
+    console.log("Error in /api/shows/now:", e);
+    return res.json(null);
+  }
 });
 
-// Create show
+// =============================================================
+// CREATE SHOW
+// =============================================================
 app.post('/api/shows', async (req, res) => {
   const { title, start_time, end_time, days } = req.body;
 
@@ -130,7 +144,9 @@ app.post('/api/shows', async (req, res) => {
   }
 });
 
-// Update show
+// =============================================================
+// UPDATE SHOW
+// =============================================================
 app.put('/api/shows/:id', async (req,res) => {
   const { id } = req.params;
   const { title, start_time, end_time, days } = req.body;
@@ -148,7 +164,9 @@ app.put('/api/shows/:id', async (req,res) => {
   }
 });
 
-// Delete show
+// =============================================================
+// DELETE SHOW
+// =============================================================
 app.delete('/api/shows/:id', async (req,res) => {
   try {
     await pool.query('DELETE FROM shows WHERE id=$1', [req.params.id]);
@@ -263,7 +281,7 @@ app.get('/api/playlist', (_, res) => {
 });
 
 // =============================================================
-// LIVE STREAM – Improved
+// LIVE STREAM – Uses Same Smart Logic
 // =============================================================
 app.get('/api/live-stream', async (_, res) => {
   const liveUrl = process.env.LIVE_STREAM_URL || "http://82.145.41.50:17263";
@@ -272,29 +290,36 @@ app.get('/api/live-stream', async (_, res) => {
 
   try {
     const r = await pool.query(`
-      SELECT s.id, s.title, s.start_time, s.end_time, s.days,
+      SELECT 
+        s.id, s.title, s.start_time, s.end_time, s.days,
         COALESCE(json_agg(p.name) FILTER (WHERE p.name IS NOT NULL),'[]') AS presenters
       FROM shows s
       LEFT JOIN presenters p ON p.show_id = s.id
       GROUP BY s.id
     `);
 
-    const active = r.rows.find(s => {
-      if (!s.days.includes(day)) return false;
+    const validShows = r.rows
+      .filter(s => s.days.includes(day))
+      .map(s => {
+        const [sh, sm, ss] = s.start_time.split(':').map(Number);
+        const [eh, em, es] = s.end_time.split(':').map(Number);
 
-      const [sh, sm, ss] = s.start_time.split(':').map(Number);
-      const [eh, em, es] = s.end_time.split(':').map(Number);
+        const start = new Date(now);
+        start.setHours(sh, sm, ss, 0);
 
-      const start = new Date(now);
-      start.setHours(sh, sm, ss, 0);
+        const end = new Date(now);
+        end.setHours(eh, em, es, 0);
 
-      const end = new Date(now);
-      end.setHours(eh, em, es, 0);
+        if (end <= start) end.setDate(end.getDate() + 1);
 
-      return now >= start && now < end;
-    });
+        return { ...s, start, end };
+      });
 
-    return res.json({ url: liveUrl, show: active || null });
+    const active = validShows
+      .filter(s => now >= s.start && now < s.end)
+      .sort((a, b) => b.start - a.start)[0] || null;
+
+    return res.json({ url: liveUrl, show: active });
   } catch {}
 
   res.json({
