@@ -27,10 +27,20 @@ export const updateShow = async (req, res) => {
     const show = await Show.findByPk(req.params.id);
     if (!show) return res.status(404).json({ error: "Show not found" });
 
-    await show.update(req.body);
+    // Only update what was sent
+    const updateData = {
+      name: req.body.name ?? show.name,
+      host: req.body.host ?? show.host,
+      startTime: req.body.startTime ?? show.startTime,
+      endTime: req.body.endTime ?? show.endTime,
+    };
+
+    await show.update(updateData);
+
     res.json(show);
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.log("🔥 UPDATE SHOW ERROR:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
