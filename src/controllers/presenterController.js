@@ -1,5 +1,6 @@
 import pool from "../config/db.js";
 
+// ======================= GET ALL =======================
 export async function getPresenters(req, res) {
   try {
     const r = await pool.query(
@@ -7,10 +8,12 @@ export async function getPresenters(req, res) {
     );
     return res.json(r.rows);
   } catch (e) {
+    console.error("GET presenters error:", e);
     return res.status(500).json({ error: "Failed to load presenters" });
   }
 }
 
+// ======================= CREATE =======================
 export async function createPresenter(req, res) {
   const { name, show_id, photo_url, bio } = req.body;
 
@@ -21,13 +24,15 @@ export async function createPresenter(req, res) {
        RETURNING *`,
       [name, show_id, photo_url, bio]
     );
+
     res.json(r.rows[0]);
   } catch (e) {
-    console.error("❌ CREATE PRESENTER ERROR:", e);
+    console.error("CREATE presenter error:", e);
     res.status(500).json({ error: "Failed to add presenter" });
   }
 }
 
+// ======================= UPDATE =======================
 export async function updatePresenter(req, res) {
   const { id } = req.params;
   const { name, show_id, photo_url, bio } = req.body;
@@ -35,26 +40,20 @@ export async function updatePresenter(req, res) {
   try {
     const r = await pool.query(
       `UPDATE presenters
-       SET
-         name = COALESCE($1, name),
-         show_id = CASE 
-                     WHEN $2 IS NULL OR $2 = '' THEN show_id
-                     ELSE $2::int
-                   END,
-         photo_url = COALESCE($3, photo_url),
-         bio = COALESCE($4, bio)
-       WHERE id = $5
+       SET name=$1, show_id=$2, photo_url=$3, bio=$4
+       WHERE id=$5
        RETURNING *`,
       [name, show_id, photo_url, bio, id]
     );
 
     res.json(r.rows[0]);
   } catch (e) {
-    console.error("❌ UPDATE PRESENTER ERROR:", e);
+    console.error("UPDATE presenter error:", e);
     res.status(500).json({ error: "Failed to update presenter" });
   }
 }
 
+// ======================= DELETE =======================
 export async function deletePresenter(req, res) {
   const { id } = req.params;
 
@@ -62,7 +61,7 @@ export async function deletePresenter(req, res) {
     await pool.query("DELETE FROM presenters WHERE id=$1", [id]);
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ DELETE PRESENTER ERROR:", e);
+    console.error("DELETE presenter error:", e);
     res.status(500).json({ error: "Failed to delete presenter" });
   }
 }
