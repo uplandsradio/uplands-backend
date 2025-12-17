@@ -1,20 +1,43 @@
 import pool from "../config/db.js";
 
-// ======================= GET ALL =======================
+// ======================= GET ALL (PUBLIC) =======================
 export async function getPresenters(req, res) {
   try {
     const r = await pool.query(
       "SELECT id, name, show_id, photo_url, bio FROM presenters ORDER BY id"
     );
-    return res.json(r.rows);
+    res.json(r.rows);
   } catch (e) {
     console.error("GET presenters error:", e);
-    return res.status(500).json({ error: "Failed to load presenters" });
+    res.status(500).json({ error: "Failed to load presenters" });
   }
 }
 
-// ======================= CREATE =======================
+// ======================= ADMIN GUARD =======================
+async function requireAdmin(req, res) {
+  const deviceId = req.headers["x-device-id"];
+  if (!deviceId) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+
+  const r = await pool.query(
+    "SELECT 1 FROM devices WHERE device_id=$1 AND role='admin' AND active=true",
+    [deviceId]
+  );
+
+  if (!r.rowCount) {
+    res.status(403).json({ error: "Not admin" });
+    return false;
+  }
+
+  return true;
+}
+
+// ======================= CREATE (ADMIN ONLY) =======================
 export async function createPresenter(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+
   const { name, show_id, photo_url, bio } = req.body;
 
   try {
@@ -32,8 +55,10 @@ export async function createPresenter(req, res) {
   }
 }
 
-// ======================= UPDATE =======================
+// ======================= UPDATE (ADMIN ONLY) =======================
 export async function updatePresenter(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+
   const { id } = req.params;
   const { name, show_id, photo_url, bio } = req.body;
 
@@ -53,8 +78,10 @@ export async function updatePresenter(req, res) {
   }
 }
 
-// ======================= DELETE =======================
+// ======================= DELETE (ADMIN ONLY) =======================
 export async function deletePresenter(req, res) {
+  if (!(await requireAdmin(req, res))) return;
+
   const { id } = req.params;
 
   try {
