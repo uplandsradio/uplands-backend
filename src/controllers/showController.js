@@ -1,51 +1,83 @@
-import { Show } from "../models/Show.js";
 import { Op } from "sequelize";
+import pool from "../config/db.js"; // hii inahakikisha tunatumia Postgres connection ya Render
+import { Show } from "../models/Show.js";
 
-// GET all shows
+// ======================= ADMIN GUARD =======================
+async function requireAdmin(req, res) {
+  const deviceId = req.headers["x-device-id"];
+  if (!deviceId) {
+    res.status(403).json({ error: "Forbidden: missing device ID" });
+    return false;
+  }
+
+  const r = await pool.query(
+    "SELECT 1 FROM devices WHERE device_id=$1 AND role='admin' AND active=true",
+    [deviceId]
+  );
+
+  if (!r.rowCount) {
+    res.status(403).json({ error: "Forbidden: not admin" });
+    return false;
+  }
+
+  return true;
+}
+
+// ======================= GET ALL SHOWS =======================
 export const getShows = async (req, res) => {
   try {
     const shows = await Show.findAll();
     res.json(shows);
   } catch (err) {
+    console.error("GET shows error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-// CREATE show
+// ======================= CREATE SHOW (ADMIN ONLY) =======================
 export const createShow = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+
+  const { title, start_time, end_time, days } = req.body;
+
   try {
-    const show = await Show.create(req.body);
+    const show = await Show.create({ title, start_time, end_time, days });
     res.json(show);
   } catch (err) {
+    console.error("CREATE show error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-// UPDATE show
+// ======================= UPDATE SHOW (ADMIN ONLY) =======================
 export const updateShow = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+
   try {
     const show = await Show.findByPk(req.params.id);
     if (!show) return res.status(404).json({ error: "Show not found" });
 
-    // Only update what was sent
+    const { title, start_time, end_time, days } = req.body;
+
     const updateData = {
-      name: req.body.name ?? show.name,
-      host: req.body.host ?? show.host,
-      startTime: req.body.startTime ?? show.startTime,
-      endTime: req.body.endTime ?? show.endTime,
+      title: title ?? show.title,
+      start_time: start_time ?? show.start_time,
+      end_time: end_time ?? show.end_time,
+      days: days ?? show.days,
     };
 
     await show.update(updateData);
-
     res.json(show);
   } catch (err) {
-    console.log("🔥 UPDATE SHOW ERROR:", err);
+    console.error("UPDATE show error:", err);
     res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
-// DELETE show
+// ======================= DELETE SHOW (ADMIN ONLY) =======================
 export const deleteShow = async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+
   try {
     const show = await Show.findByPk(req.params.id);
     if (!show) return res.status(404).json({ error: "Show not found" });
@@ -53,38 +85,38 @@ export const deleteShow = async (req, res) => {
     await show.destroy();
     res.json({ message: "Show deleted" });
   } catch (err) {
+    console.error("DELETE show error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-// ⭐ NEW: GET LIVE SHOW (real-time)
+// ======================= GET LIVE SHOW =======================
 export const getLiveShow = async (req, res) => {
   try {
     const now = new Date();
 
     const show = await Show.findOne({
       where: {
-        startTime: { [Op.lte]: now },
-        endTime: { [Op.gte]: now },
+        start_time: { [Op.lte]: now },
+        end_time: { [Op.gte]: now },
       },
     });
 
     if (!show) {
       return res.json({
         showName: null,
-        hostName: null,
         startTime: null,
         endTime: null,
       });
     }
 
     res.json({
-      showName: show.name,
-      hostName: show.host,
-      startTime: show.startTime,
-      endTime: show.endTime,
+      showName: show.title,
+      startTime: show.start_time,
+      endTime: show.end_time,
     });
   } catch (err) {
+    console.error("GET live show error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
