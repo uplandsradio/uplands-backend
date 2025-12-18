@@ -140,24 +140,12 @@ app.post('/api/comments', (req,res) => {
 
 app.get('/api/comments', (_, res) => res.json(comments));
 
-// -------------------------------------------------------------
-// 🔐 DELETE COMMENT – DEVICE ADMIN ONLY
-// -------------------------------------------------------------
 app.delete('/api/comments/:id', async (req,res) => {
   const deviceId = req.headers['x-device-id'];
+  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
 
-  if (!deviceId) {
-    return res.status(403).json({ error:"Forbidden" });
-  }
-
-  const r = await pool.query(
-    `SELECT role FROM devices WHERE device_id=$1`,
-    [deviceId]
-  );
-
-  if (!r.rows.length || r.rows[0].role !== 'admin') {
-    return res.status(403).json({ error:"Forbidden" });
-  }
+  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
 
   const idx = comments.findIndex(c => c.id == req.params.id);
   if (idx === -1) return res.status(404).json({ error:"Not found" });
@@ -184,11 +172,7 @@ app.get('/api/check-admin', async (req,res) => {
     const deviceId = req.query.device_id;
     if (!deviceId) return res.json({ isAdmin:false });
 
-    const r = await pool.query(
-      `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
-      [deviceId]
-    );
-
+    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1 LIMIT 1`, [deviceId]);
     res.json({ isAdmin: r.rows.length && r.rows[0].role === 'admin' });
   } catch {
     res.json({ isAdmin:false });
@@ -196,9 +180,84 @@ app.get('/api/check-admin', async (req,res) => {
 });
 
 // =============================================================
+// PRESENTERS
+// =============================================================
+app.get('/api/presenters', async (_, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM presenters ORDER BY id`);
+    res.json(r.rows);
+  } catch (e) {
+    console.error(e);
+    res.json([]);
+  }
+});
+
+app.post('/api/presenters', async (req,res) => {
+  try {
+    const deviceId = req.headers['x-device-id'];
+    const { name, show_id, photo_url, bio } = req.body;
+
+    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+    const result = await pool.query(
+      `INSERT INTO presenters (name, show_id, photo_url, bio) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name, show_id, photo_url, bio]
+    );
+    res.json(result.rows[0]);
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error:"Server error" });
+  }
+});
+
+app.put('/api/presenters/:id', async (req,res) => {
+  try {
+    const deviceId = req.headers['x-device-id'];
+    const id = req.params.id;
+    const { name, show_id, photo_url, bio } = req.body;
+
+    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+    const result = await pool.query(
+      `UPDATE presenters SET name=$1, show_id=$2, photo_url=$3, bio=$4 WHERE id=$5 RETURNING *`,
+      [name, show_id, photo_url, bio, id]
+    );
+    res.json(result.rows[0]);
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error:"Server error" });
+  }
+});
+
+app.delete('/api/presenters/:id', async (req,res) => {
+  try {
+    const deviceId = req.headers['x-device-id'];
+    const id = req.params.id;
+
+    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+    await pool.query(`DELETE FROM presenters WHERE id=$1`, [id]);
+    res.json({ success:true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error:"Server error" });
+  }
+});
+
+// =============================================================
+// IMAGE UPLOAD
+// =============================================================
+app.post('/api/upload_presenter_image', upload.single('file'), (req,res) => {
+  if (!req.file) return res.status(400).json({ error:"No file uploaded" });
+  const url = `/uploads/${req.file.filename}`;
+  res.json({ url });
+});
+
+// =============================================================
 // START SERVER
 // =============================================================
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () =>
-  console.log(`✅ Uplands API running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`✅ Uplands API running on port ${PORT}`));
