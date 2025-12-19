@@ -94,11 +94,8 @@ export const deleteShow = async (req, res) => {
 export const getLiveShow = async (req, res) => {
   try {
     const now = new Date();
-
-    // ⏱ TIME ONLY (HH:mm:ss)
     const currentTime = now.toTimeString().slice(0, 8);
 
-    // 📅 DAY (mon, tue, ...)
     const days = ["sun","mon","tue","wed","thu","fri","sat"];
     const today = days[now.getDay()];
 
@@ -106,14 +103,22 @@ export const getLiveShow = async (req, res) => {
       where: {
         start_time: { [Op.lte]: currentTime },
         end_time: { [Op.gte]: currentTime },
-        days: { [Op.contains]: [today] }, // ⭐ muhimu sana
+        // 🔥 SAFE CHECK (works even if days is string)
+        [Op.or]: [
+          { days: { [Op.contains]: [today] } },
+          { days: today },
+          { days: { [Op.like]: `%${today}%` } },
+        ],
       },
+      order: [["start_time", "DESC"]],
     });
 
+    // 🔁 FALLBACK (NEVER NULL)
     if (!show) {
       return res.json({
-        title: "Uplands FM",
+        title: "Kipindi Maalumu",
         presenters: [],
+        isFallback: true,
       });
     }
 
@@ -122,6 +127,7 @@ export const getLiveShow = async (req, res) => {
       presenters: [],
       start_time: show.start_time,
       end_time: show.end_time,
+      isFallback: false,
     });
   } catch (err) {
     console.error("GET live show error:", err);
