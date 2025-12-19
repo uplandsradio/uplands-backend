@@ -95,25 +95,33 @@ export const getLiveShow = async (req, res) => {
   try {
     const now = new Date();
 
+    // ⏱ TIME ONLY (HH:mm:ss)
+    const currentTime = now.toTimeString().slice(0, 8);
+
+    // 📅 DAY (mon, tue, ...)
+    const days = ["sun","mon","tue","wed","thu","fri","sat"];
+    const today = days[now.getDay()];
+
     const show = await Show.findOne({
       where: {
-        start_time: { [Op.lte]: now },
-        end_time: { [Op.gte]: now },
+        start_time: { [Op.lte]: currentTime },
+        end_time: { [Op.gte]: currentTime },
+        days: { [Op.contains]: [today] }, // ⭐ muhimu sana
       },
     });
 
     if (!show) {
       return res.json({
-        showName: null,
-        startTime: null,
-        endTime: null,
+        title: "Uplands FM",
+        presenters: [],
       });
     }
 
     res.json({
-      showName: show.title,
-      startTime: show.start_time,
-      endTime: show.end_time,
+      title: show.title,
+      presenters: [],
+      start_time: show.start_time,
+      end_time: show.end_time,
     });
   } catch (err) {
     console.error("GET live show error:", err);
