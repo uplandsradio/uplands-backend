@@ -61,6 +61,37 @@ const fallbackShows = [
 app.get("/", (_, res) => res.send("Uplands API Running 🚀"));
 
 // =============================================================
+// 🔥 STREAM HEALTH (MAIN AUTHORITY)
+// =============================================================
+app.get("/api/stream/health", async (_, res) => {
+  try {
+    const streamUrl = process.env.RADIO_STREAM;
+    if (!streamUrl) throw new Error("NO_STREAM_URL");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const r = await fetch(streamUrl, {
+      method: "HEAD",
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    res.json({
+      ok: r.ok,
+      status: r.status,
+      ts: Date.now()
+    });
+  } catch {
+    res.status(503).json({
+      ok: false,
+      ts: Date.now()
+    });
+  }
+});
+
+// =============================================================
 // SHOWS
 // =============================================================
 app.get('/api/shows', async (_, res) => {
@@ -174,136 +205,6 @@ app.get('/api/check-admin', async (req,res) => {
     res.json({ isAdmin: r.rows.length && r.rows[0].role === 'admin' });
   } catch {
     res.json({ isAdmin:false });
-  }
-});
-
-// =============================================================
-// PRESENTERS
-// =============================================================
-app.get('/api/presenters', async (_, res) => {
-  try {
-    const r = await pool.query(`SELECT * FROM presenters ORDER BY id`);
-    res.json(r.rows);
-  } catch (e) {
-    console.error(e);
-    res.json([]);
-  }
-});
-
-app.post('/api/presenters', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const { name, show_id, photo_url, bio } = req.body;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    const result = await pool.query(
-      `INSERT INTO presenters (name, show_id, photo_url, bio) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [name, show_id, photo_url, bio]
-    );
-    res.json(result.rows[0]);
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
-  }
-});
-
-app.put('/api/presenters/:id', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const id = req.params.id;
-    const { name, show_id, photo_url, bio } = req.body;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    const result = await pool.query(
-      `UPDATE presenters SET name=$1, show_id=$2, photo_url=$3, bio=$4 WHERE id=$5 RETURNING *`,
-      [name, show_id, photo_url, bio, id]
-    );
-    res.json(result.rows[0]);
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
-  }
-});
-
-app.delete('/api/presenters/:id', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const id = req.params.id;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    await pool.query(`DELETE FROM presenters WHERE id=$1`, [id]);
-    res.json({ success:true });
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
-  }
-});
-
-// =============================================================
-// SHOWS ADMIN ROUTES (CRUD)
-// =============================================================
-
-// CREATE SHOW
-app.post('/api/shows', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const { title, start_time, end_time, days } = req.body;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    const result = await pool.query(
-      `INSERT INTO shows (title, start_time, end_time, days) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [title, start_time, end_time, days]
-    );
-    res.json(result.rows[0]);
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
-  }
-});
-
-// UPDATE SHOW
-app.put('/api/shows/:id', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const id = req.params.id;
-    const { title, start_time, end_time, days } = req.body;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    const result = await pool.query(
-      `UPDATE shows SET title=$1, start_time=$2, end_time=$3, days=$4 WHERE id=$5 RETURNING *`,
-      [title, start_time, end_time, days, id]
-    );
-    res.json(result.rows[0]);
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
-  }
-});
-
-// DELETE SHOW
-app.delete('/api/shows/:id', async (req,res) => {
-  try {
-    const deviceId = req.headers['x-device-id'];
-    const id = req.params.id;
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-    if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-    await pool.query(`DELETE FROM shows WHERE id=$1`, [id]);
-    res.json({ success:true });
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ error:"Server error" });
   }
 });
 
