@@ -13,6 +13,9 @@ import pkg from 'pg';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import https from 'https';
+import url from 'url';
 
 const { Pool } = pkg;
 const app = express();
@@ -61,33 +64,40 @@ const fallbackShows = [
 app.get("/", (_, res) => res.send("Uplands API Running 🚀"));
 
 // =============================================================
-// 🔥 STREAM HEALTH (MAIN AUTHORITY)
+// 🔥 STREAM HEALTH (MAIN AUTHORITY HTTP/0.9 SAFE)
 // =============================================================
-app.get("/api/stream/health", async (_, res) => {
+app.get("/api/stream/health", (_, res) => {
+  const streamUrl = process.env.RADIO_STREAM;
+  if (!streamUrl) return res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
+
   try {
-    const streamUrl = process.env.RADIO_STREAM;
-    if (!streamUrl) throw new Error("NO_STREAM_URL");
+    const parsed = url.parse(streamUrl);
+    const lib = parsed.protocol === "https:" ? https : http;
+    const timeoutMs = 3000;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-
-    const r = await fetch(streamUrl, {
-      method: "HEAD",
-      signal: controller.signal
+    const request = lib.request({
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+      path: parsed.path,
+      method: "GET",
+      headers: { "Icy-MetaData": "1" }, // for MP3 streams
+    }, (response) => {
+      response.destroy(); // we don't need the full data
+      res.json({ status: "LIVE", checkedAt: new Date().toISOString() });
     });
 
-    clearTimeout(timeout);
-
-    res.json({
-      ok: r.ok,
-      status: r.status,
-      ts: Date.now()
+    request.on("error", () => {
+      res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
     });
+
+    request.setTimeout(timeoutMs, () => {
+      request.abort();
+      res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
+    });
+
+    request.end();
   } catch {
-    res.status(503).json({
-      ok: false,
-      ts: Date.now()
-    });
+    res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
   }
 });
 

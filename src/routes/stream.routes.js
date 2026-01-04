@@ -8,7 +8,15 @@ router.get("/health", async (_, res) => {
     const streamUrl = process.env.RADIO_STREAM;
     if (!streamUrl) throw new Error("No stream URL");
 
-    const r = await fetch(streamUrl, { method: "HEAD", timeout: 4000 });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const r = await fetch(streamUrl, {
+      method: "HEAD",
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
 
     res.json({
       ok: r.ok,

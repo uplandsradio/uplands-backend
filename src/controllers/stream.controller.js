@@ -2,8 +2,9 @@ import axios from "axios";
 
 export const streamHealth = async (req, res) => {
   try {
-    await axios.head(process.env.MAIN_STREAM_URL, {
-      timeout: 3000,
+    const r = await axios.get(process.env.MAIN_STREAM_URL, {
+      timeout: 5000,
+      responseType: "stream", // avoid loading full mp3 in memory
     });
 
     return res.json({
