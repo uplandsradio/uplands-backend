@@ -158,6 +158,65 @@ app.get('/api/shows/now', async (_, res) => {
 });
 
 // =============================================================
+// PRESENTERS
+// =============================================================
+app.get('/api/presenters', async (_, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM presenters ORDER BY id DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch presenters" });
+  }
+});
+
+app.post('/api/presenters', async (req,res) => {
+  const { name, bio, show_id, photo_url } = req.body;
+  try {
+    const r = await pool.query(
+      `INSERT INTO presenters(name,bio,show_id,photo_url) VALUES($1,$2,$3,$4) RETURNING *`,
+      [name,bio,show_id,photo_url]
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to create presenter" });
+  }
+});
+
+app.put('/api/presenters/:id', async (req,res) => {
+  const { id } = req.params;
+  const { name, bio, show_id, photo_url } = req.body;
+  try {
+    const r = await pool.query(
+      `UPDATE presenters SET name=$1, bio=$2, show_id=$3, photo_url=$4 WHERE id=$5 RETURNING *`,
+      [name,bio,show_id,photo_url,id]
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to update presenter" });
+  }
+});
+
+app.delete('/api/presenters/:id', async (req,res) => {
+  const { id } = req.params;
+  const deviceId = req.headers['x-device-id'];
+  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
+
+  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+  try {
+    await pool.query(`DELETE FROM presenters WHERE id=$1`, [id]);
+    res.json({ success:true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to delete presenter" });
+  }
+});// ------------------------------------------------------------
+
+// =============================================================
 // COMMENTS
 // =============================================================
 let comments = [];
