@@ -120,6 +120,71 @@ app.get('/api/shows', async (_, res) => {
 });
 
 // =============================================================
+// UPDATE SHOW (ADMIN ONLY)
+// =============================================================
+app.put('/api/shows/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, start_time, end_time, days } = req.body;
+  const deviceId = req.headers['x-device-id'];
+
+  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
+
+  const r = await pool.query(
+    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
+    [deviceId]
+  );
+
+  if (!r.rows.length || r.rows[0].role !== 'admin') {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    const q = await pool.query(
+      `UPDATE shows
+       SET title=$1, start_time=$2, end_time=$3, days=$4
+       WHERE id=$5
+       RETURNING *`,
+      [title, start_time, end_time, days, id]
+    );
+
+    if (!q.rows.length) return res.status(404).json({ error: "Show not found" });
+
+    res.json(q.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update show" });
+  }
+});
+
+// =============================================================
+// DELETE SHOW (ADMIN ONLY)
+// =============================================================
+app.delete('/api/shows/:id', async (req, res) => {
+  const { id } = req.params;
+  const deviceId = req.headers['x-device-id'];
+
+  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
+
+  const r = await pool.query(
+    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
+    [deviceId]
+  );
+
+  if (!r.rows.length || r.rows[0].role !== 'admin') {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    await pool.query(`DELETE FROM shows WHERE id=$1`, [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete show" });
+  }
+});
+
+
+// =============================================================
 // SHOWS NOW
 // =============================================================
 app.get('/api/shows/now', async (_, res) => {
