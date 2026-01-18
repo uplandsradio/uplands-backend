@@ -223,6 +223,40 @@ app.get('/api/shows/now', async (_, res) => {
 });
 
 // =============================================================
+// CREATE SHOW (ADMIN ONLY)
+// =============================================================
+app.post('/api/shows', async (req, res) => {
+  const { title, start_time, end_time, days } = req.body;
+  const deviceId = req.headers['x-device-id'];
+
+  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
+
+  const r = await pool.query(
+    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
+    [deviceId]
+  );
+
+  if (!r.rows.length || r.rows[0].role !== 'admin') {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    const q = await pool.query(
+      `INSERT INTO shows(title, start_time, end_time, days)
+       VALUES($1,$2,$3,$4)
+       RETURNING *`,
+      [title, start_time, end_time, days]
+    );
+
+    res.json(q.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create show" });
+  }
+});
+
+
+// =============================================================
 // PRESENTERS
 // =============================================================
 app.get('/api/presenters', async (_, res) => {
