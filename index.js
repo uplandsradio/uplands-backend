@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads + Reports)
+// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads + Reports + Comment Filtering)
 // ------------------------------------------------------------
 process.env.TZ = "Africa/Nairobi";
 
@@ -302,18 +302,29 @@ app.delete('/api/presenters/:id', async (req,res) => {
 });
 
 // =============================================================
-// COMMENTS
+// COMMENTS + FILTER + BLOCK
 // =============================================================
 let comments = [];
+let reports = [];
+
+const offensiveWords = ['badword1','badword2','badword3']; // TODO: add real list
+
+function containsOffensive(text) {
+  const ltext = text.toLowerCase();
+  return offensiveWords.some(w => ltext.includes(w));
+}
 
 app.post('/api/comments', (req,res) => {
   const { username, message } = req.body;
   if (!message) return res.status(400).json({ error:"Message required" });
 
+  const hidden = containsOffensive(message);
+
   const obj = {
     id: Date.now(),
     username: username || "Guest",
     message,
+    hidden, // new field for moderation
     created_at: new Date().toISOString()
   };
 
@@ -321,26 +332,7 @@ app.post('/api/comments', (req,res) => {
   res.json(obj);
 });
 
-app.get('/api/comments', (_, res) => res.json(comments));
-
-app.delete('/api/comments/:id', async (req,res) => {
-  const deviceId = req.headers['x-device-id'];
-  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
-
-  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-  const idx = comments.findIndex(c => c.id == req.params.id);
-  if (idx === -1) return res.status(404).json({ error:"Not found" });
-
-  comments.splice(idx,1);
-  res.json({ success:true });
-});
-
-// =============================================================
-// REPORTS (NEW for Play Store compliance)
-// =============================================================
-let reports = [];
+app.get('/api/comments', (_, res) => res.json(comments.filter(c => !c.hidden)));
 
 app.post('/api/report-comment', (req,res) => {
   const { commentId, reason, reporter } = req.body;
@@ -371,6 +363,20 @@ app.get('/api/reports', async (req,res) => {
   res.json(reports);
 });
 
+app.delete('/api/comments/:id', async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
+
+  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+  const idx = comments.findIndex(c => c.id == req.params.id);
+  if (idx === -1) return res.status(404).json({ error:"Not found" });
+
+  comments.splice(idx,1);
+  res.json({ success:true });
+});
+
 // =============================================================
 // LIVE STREAM
 // =============================================================
@@ -382,7 +388,7 @@ app.get('/api/live-stream', (_, res) => {
 });
 
 // =============================================================
-// 🔐 ADMIN CHECK (DEVICE-BASED)
+// 🔐 ADMIN CHECK
 // =============================================================
 app.get('/api/check-admin', async (req,res) => {
   try {
