@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads)
+// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads + Reports)
 // ------------------------------------------------------------
 process.env.TZ = "Africa/Nairobi";
 
@@ -64,7 +64,7 @@ const fallbackShows = [
 app.get("/", (_, res) => res.send("Uplands API Running 🚀"));
 
 // =============================================================
-// 🔥 STREAM HEALTH (MAIN AUTHORITY HTTP/0.9 SAFE)
+// 🔥 STREAM HEALTH
 // =============================================================
 app.get("/api/stream/health", (_, res) => {
   const streamUrl = process.env.RADIO_STREAM;
@@ -80,9 +80,9 @@ app.get("/api/stream/health", (_, res) => {
       port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
       path: parsed.path,
       method: "GET",
-      headers: { "Icy-MetaData": "1" }, // for MP3 streams
+      headers: { "Icy-MetaData": "1" },
     }, (response) => {
-      response.destroy(); // we don't need the full data
+      response.destroy();
       res.json({ status: "LIVE", checkedAt: new Date().toISOString() });
     });
 
@@ -119,9 +119,6 @@ app.get('/api/shows', async (_, res) => {
   res.json(fallbackShows);
 });
 
-// =============================================================
-// UPDATE SHOW (ADMIN ONLY)
-// =============================================================
 app.put('/api/shows/:id', async (req, res) => {
   const { id } = req.params;
   const { title, start_time, end_time, days } = req.body;
@@ -156,9 +153,6 @@ app.put('/api/shows/:id', async (req, res) => {
   }
 });
 
-// =============================================================
-// DELETE SHOW (ADMIN ONLY)
-// =============================================================
 app.delete('/api/shows/:id', async (req, res) => {
   const { id } = req.params;
   const deviceId = req.headers['x-device-id'];
@@ -183,10 +177,6 @@ app.delete('/api/shows/:id', async (req, res) => {
   }
 });
 
-
-// =============================================================
-// SHOWS NOW
-// =============================================================
 app.get('/api/shows/now', async (_, res) => {
   try {
     const now = new Date();
@@ -222,9 +212,6 @@ app.get('/api/shows/now', async (_, res) => {
   }
 });
 
-// =============================================================
-// CREATE SHOW (ADMIN ONLY)
-// =============================================================
 app.post('/api/shows', async (req, res) => {
   const { title, start_time, end_time, days } = req.body;
   const deviceId = req.headers['x-device-id'];
@@ -254,7 +241,6 @@ app.post('/api/shows', async (req, res) => {
     res.status(500).json({ error: "Failed to create show" });
   }
 });
-
 
 // =============================================================
 // PRESENTERS
@@ -313,7 +299,7 @@ app.delete('/api/presenters/:id', async (req,res) => {
     console.error(err);
     res.status(500).json({ error:"Failed to delete presenter" });
   }
-});// ------------------------------------------------------------
+});
 
 // =============================================================
 // COMMENTS
@@ -349,6 +335,40 @@ app.delete('/api/comments/:id', async (req,res) => {
 
   comments.splice(idx,1);
   res.json({ success:true });
+});
+
+// =============================================================
+// REPORTS (NEW for Play Store compliance)
+// =============================================================
+let reports = [];
+
+app.post('/api/report-comment', (req,res) => {
+  const { commentId, reason, reporter } = req.body;
+  if (!commentId || !reason) return res.status(400).json({ error:"commentId and reason required" });
+
+  const c = comments.find(c => c.id == commentId);
+  if (!c) return res.status(404).json({ error:"Comment not found" });
+
+  const obj = {
+    id: Date.now(),
+    commentId,
+    reason,
+    reporter: reporter || "Anonymous",
+    created_at: new Date().toISOString()
+  };
+
+  reports.push(obj);
+  res.json({ success:true, report: obj });
+});
+
+app.get('/api/reports', async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
+
+  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
+  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+
+  res.json(reports);
 });
 
 // =============================================================
@@ -388,5 +408,5 @@ app.post('/api/upload_presenter_image', upload.single('file'), (req,res) => {
 // =============================================================
 // START SERVER
 // =============================================================
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`✅ Uplands API running on port ${PORT}`));
