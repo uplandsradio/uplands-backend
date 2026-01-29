@@ -100,8 +100,36 @@ async function deleteComment(req, res) {
   }
 }
 
+/**
+ * REPORT COMMENT
+ */
+async function reportComment(req, res) {
+  const { commentId, reason } = req.body;
+  if (!commentId) return res.status(400).json({ error: 'commentId required' });
+
+  // get device id from header (fallback for guests)
+  const deviceId = req.headers['x-device-id'] || `guest_${Date.now()}`;
+
+  try {
+    const r = await pool.query(
+      `
+      INSERT INTO comment_reports (comment_id, device_id, reason)
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [commentId, deviceId, reason || 'Inappropriate']
+    );
+
+    return res.json(r.rows[0]);
+  } catch (e) {
+    console.warn('report comment failed:', e.message);
+    return res.status(500).json({ error: 'Failed to report comment' });
+  }
+}
+
 module.exports = {
   postComment,
   getComments,
   deleteComment,
+  reportComment, // 🔹 export reportComment
 };
