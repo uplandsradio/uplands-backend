@@ -12,6 +12,7 @@ async function postComment(req, res) {
   if (!message) return res.status(400).json({ error: 'Message required' });
 
   try {
+    // insert into DB, ID comes from sequence automatically
     const r = await pool.query(
       `
       INSERT INTO comments (username, message, approved, created_at)
