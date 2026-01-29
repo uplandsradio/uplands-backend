@@ -302,57 +302,73 @@ app.delete('/api/presenters/:id', async (req,res) => {
 });
 
 // =============================================================
-// COMMENTS + FILTER + BLOCK
+// COMMENTS + FILTER + BLOCK (Persistent in PostgreSQL)
 // =============================================================
-let comments = [];
-let reports = [];
-
 const offensiveWords = ['badword1','badword2','badword3']; // TODO: add real list
 
 function containsOffensive(text) {
-  const ltext = text.toLowerCase();
-  return offensiveWords.some(w => ltext.includes(w));
+  return offensiveWords.some(w => text.toLowerCase().includes(w));
 }
 
-app.post('/api/comments', (req,res) => {
+// Post a comment
+app.post('/api/comments', async (req,res) => {
   const { username, message } = req.body;
   if (!message) return res.status(400).json({ error:"Message required" });
 
   const hidden = containsOffensive(message);
 
-  const obj = {
-    id: Date.now(),
-    username: username || "Guest",
-    message,
-    hidden, // new field for moderation
-    created_at: new Date().toISOString()
-  };
+  try {
+    const r = await pool.query(
+      `INSERT INTO comments(username, message, hidden, created_at)
+       VALUES($1,$2,$3,NOW())
+       RETURNING *`,
+      [username || "Guest", message, hidden]
+    );
 
-  comments.unshift(obj);
-  res.json(obj);
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to save comment" });
+  }
 });
 
-app.get('/api/comments', (_, res) => res.json(comments.filter(c => !c.hidden)));
+// Get visible comments
+app.get('/api/comments', async (_, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM comments WHERE hidden=false ORDER BY created_at DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to fetch comments" });
+  }
+});
 
-app.post('/api/report-comment', (req,res) => {
-  const { commentId, reason, reporter } = req.body;
+// Report a comment
+app.post('/api/report-comment', async (req,res) => {
+  const { commentId, reason } = req.body;
+  const reporter = req.headers['x-device-id'] || "Anonymous";
+
   if (!commentId || !reason) return res.status(400).json({ error:"commentId and reason required" });
 
-  const c = comments.find(c => c.id == commentId);
-  if (!c) return res.status(404).json({ error:"Comment not found" });
+  try {
+    const c = await pool.query(`SELECT * FROM comments WHERE id=$1`, [commentId]);
+    if (!c.rows.length) return res.status(404).json({ error:"Comment not found" });
 
-  const obj = {
-    id: Date.now(),
-    commentId,
-    reason,
-    reporter: reporter || "Anonymous",
-    created_at: new Date().toISOString()
-  };
+    const r = await pool.query(
+      `INSERT INTO comment_reports(comment_id, reported_by, reason, created_at)
+       VALUES($1,$2,$3,NOW())
+       RETURNING *`,
+      [commentId, reporter, reason]
+    );
 
-  reports.push(obj);
-  res.json({ success:true, report: obj });
+    res.json({ success:true, report: r.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to report comment" });
+  }
 });
 
+// Get all reports (admin only)
 app.get('/api/reports', async (req,res) => {
   const deviceId = req.headers['x-device-id'];
   if (!deviceId) return res.status(403).json({ error:"Forbidden" });
@@ -360,9 +376,16 @@ app.get('/api/reports', async (req,res) => {
   const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
   if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
 
-  res.json(reports);
+  try {
+    const reportsRes = await pool.query(`SELECT * FROM comment_reports ORDER BY created_at DESC`);
+    res.json(reportsRes.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to fetch reports" });
+  }
 });
 
+// Delete a comment (admin only)
 app.delete('/api/comments/:id', async (req,res) => {
   const deviceId = req.headers['x-device-id'];
   if (!deviceId) return res.status(403).json({ error:"Forbidden" });
@@ -370,11 +393,14 @@ app.delete('/api/comments/:id', async (req,res) => {
   const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
   if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
 
-  const idx = comments.findIndex(c => c.id == req.params.id);
-  if (idx === -1) return res.status(404).json({ error:"Not found" });
-
-  comments.splice(idx,1);
-  res.json({ success:true });
+  try {
+    const del = await pool.query(`DELETE FROM comments WHERE id=$1`, [req.params.id]);
+    if (del.rowCount === 0) return res.status(404).json({ error:"Not found" });
+    res.json({ success:true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to delete comment" });
+  }
 });
 
 // =============================================================
