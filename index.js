@@ -344,26 +344,37 @@ app.get('/api/comments', async (_, res) => {
 });
 
 // Report a comment
-app.post('/api/report-comment', async (req,res) => {
+// =============================================================
+// REPORT A COMMENT
+// =============================================================
+app.post('/api/report-comment', async (req, res) => {
   const { commentId, reason } = req.body;
-  const reporter = req.headers['x-device-id'] || "Anonymous";
+  const deviceId = req.headers['x-device-id'];
 
-  if (!commentId || !reason) return res.status(400).json({ error:"commentId and reason required" });
+  if (!commentId || !deviceId) return res.status(400).json({ error: "commentId and deviceId required" });
+
+  const commentIdInt = parseInt(commentId, 10);
+  if (isNaN(commentIdInt)) return res.status(400).json({ error: "Invalid commentId" });
 
   try {
-    const c = await pool.query(`SELECT * FROM comments WHERE id=$1`, [commentId]);
-    if (!c.rows.length) return res.status(404).json({ error:"Comment not found" });
-
-    const r = await pool.query(
-      `INSERT INTO comment_reports(comment_id, reported_by, reason, created_at)
-       VALUES($1,$2,$3,NOW())
-       RETURNING *`,
-      [commentId, reporter, reason]
+    const commentCheck = await pool.query(
+      `SELECT id FROM comments WHERE id=$1`,
+      [commentIdInt]
     );
 
-    res.json({ success:true, report: r.rows[0] });
+    if (!commentCheck.rows.length) return res.status(404).json({ error: "Comment not found" });
+
+    const r = await pool.query(
+      `INSERT INTO comment_reports (comment_id, device_id, reason, created_at)
+       VALUES ($1,$2,$3,NOW()) RETURNING id`,
+      [commentIdInt, deviceId, reason || "Inappropriate"]
+    );
+
+    res.json({ success:true, reportId: r.rows[0].id });
+
   } catch (err) {
-    console.error(err);
+    if (err.code === '23505') return res.status(400).json({ error:"You already reported this comment" });
+    console.error("REPORT COMMENT ERROR:", err);
     res.status(500).json({ error:"Failed to report comment" });
   }
 });

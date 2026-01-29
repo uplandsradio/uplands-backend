@@ -3,29 +3,45 @@ import express from "express";
 const router = express.Router();
 
 export default function reportRoutes(pool) {
+
   // --------------------------------------------------
   // 1️⃣ REPORT COMMENT (USER)
   // --------------------------------------------------
   router.post("/report-comment", async (req, res) => {
-    try {
-      const { commentId, reason } = req.body;
+  try {
+    const deviceId = req.headers['x-device-id'];
+    const commentId = parseInt(req.body.commentId, 10); // 🔹 convert to int
+    const reason = req.body.reason || "Inappropriate";
 
-      if (commentId == null) {
-        return res.status(400).json({ error: "commentId required" });
-      }
+    console.log("REPORT COMMENT → deviceId", deviceId, "commentId", commentId);
 
-      const r = await pool.query(
-        `INSERT INTO comment_reports (comment_id, reason)
-         VALUES ($1, $2) RETURNING id`,
-        [commentId, reason || "Inappropriate"]
-      );
-
-      res.json({ success: true, reportId: r.rows[0].id });
-    } catch (err) {
-      console.error("REPORT ERROR:", err);
-      res.status(500).json({ error: "Failed to report comment" });
+    if (!commentId || !deviceId) {
+      return res.status(400).json({ error: "commentId and deviceId required" });
     }
-  });
+
+    // Check if comment exists
+    const commentCheck = await pool.query(
+      `SELECT id FROM comments WHERE id=$1`, [commentId]
+    );
+    if (!commentCheck.rows.length) return res.status(404).json({ error: "Comment not found" });
+
+    // Insert report
+    const r = await pool.query(
+      `INSERT INTO comment_reports(comment_id, device_id, reason, created_at)
+       VALUES($1, $2, $3, NOW())
+       RETURNING id`,
+      [commentId, deviceId, reason]
+    );
+
+    res.json({ success: true, reportId: r.rows[0].id });
+  } catch (err) {
+    console.error("REPORT COMMENT ERROR:", err);
+    if (err.code === '23505') { // duplicate
+      return res.status(400).json({ error: "You already reported this comment" });
+    }
+    res.status(500).json({ error: "Failed to report comment" });
+  }
+});
 
   // --------------------------------------------------
   // 2️⃣ GET REPORTED COMMENTS COUNT (FOR CLIENT)
