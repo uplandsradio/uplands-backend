@@ -59,7 +59,7 @@ async function getComments(req, res) {
       FROM comments c
       LEFT JOIN comment_reports rp 
         ON rp.comment_id = c.id
-      GROUP BY c.id
+      GROUP BY c.id, c.username, c.message, c.created_at, c.approved
       ORDER BY c.created_at DESC
     `);
 
