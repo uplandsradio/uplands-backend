@@ -13,14 +13,16 @@ async function postComment(req, res) {
 
   try {
     // insert into DB, ID comes from sequence automatically
-    const r = await pool.query(
-      `
-      INSERT INTO comments (username, message, approved, created_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING id, username, message, created_at, approved
-      `,
-      [username || 'Guest', message, false]
-    );
+    const deviceId = req.headers['x-device-id'] || `guest_${Date.now()}`;
+
+const r = await pool.query(
+  `
+  INSERT INTO comments (username, message, approved, device_id, created_at)
+  VALUES ($1, $2, $3, $4, NOW())
+  RETURNING id, username, message, device_id, created_at, approved
+  `,
+  [username || 'Guest', message, false, deviceId]
+);
 
     return res.json({
       ...r.rows[0],
