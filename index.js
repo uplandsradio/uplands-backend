@@ -17,11 +17,14 @@ import http from 'http';
 import https from 'https';
 import url from 'url';
 
-const { Pool } = pkg;
+const { Pool, types } = pkg;  // 🔹 include types hapa
 const app = express();
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// 🔹 Hapa tunashughulikia BigInt kwa Node.js/pg
+types.setTypeParser(20, val => parseInt(val)); // int8 = 20
 
 // -----------------------------------------
 // DATABASE (Render / Production safe)
