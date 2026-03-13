@@ -335,8 +335,21 @@ app.post('/api/comments', async (req,res) => {
 // Get visible comments
 app.get('/api/comments', async (_, res) => {
   try {
-    const r = await pool.query(`SELECT * FROM comments WHERE hidden=false ORDER BY created_at DESC`);
+    const r = await pool.query(`
+      SELECT 
+        id,
+        username,
+        message,
+        hidden,
+        created_at AT TIME ZONE 'Africa/Nairobi' AS created_at
+      FROM comments
+      WHERE hidden=false
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+
     res.json(r.rows);
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error:"Failed to fetch comments" });
