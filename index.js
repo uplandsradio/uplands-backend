@@ -318,12 +318,13 @@ app.post('/api/comments', async (req,res) => {
   const hidden = containsOffensive(message);
 
   try {
-    const r = await pool.query(
-      `INSERT INTO comments(username, message, hidden, created_at)
-       VALUES($1,$2,$3,NOW())
-       RETURNING *`,
-      [username || "Guest", message, hidden]
-    );
+    const deviceId = req.headers['x-device-id'] || 'guest'; // au generate unique id
+const r = await pool.query(
+  `INSERT INTO comments(username, message, hidden, device_id, created_at)
+   VALUES($1,$2,$3,$4,NOW())
+   RETURNING *`,
+  [username || "Guest", message, hidden, deviceId]
+);
 
     res.json(r.rows[0]);
   } catch (err) {
