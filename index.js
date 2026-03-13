@@ -341,7 +341,7 @@ app.get('/api/comments', async (_, res) => {
         username,
         message,
         hidden,
-        created_at AT TIME ZONE 'Africa/Nairobi' AS created_at
+        created_at
       FROM comments
       WHERE hidden=false
       ORDER BY created_at DESC
