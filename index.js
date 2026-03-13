@@ -337,14 +337,21 @@ app.get('/api/comments', async (_, res) => {
   try {
     const r = await pool.query(`
       SELECT 
-        id,
-        username,
-        message,
-        hidden,
-        created_at
-      FROM comments
-      WHERE hidden=false
-      ORDER BY created_at DESC
+        c.id,
+        c.username,
+        c.message,
+        c.hidden,
+        c.device_id,
+        c.created_at,
+        COALESCE(rc.reports_count, 0) AS reports_count
+      FROM comments c
+      LEFT JOIN (
+        SELECT comment_id, COUNT(*) AS reports_count
+        FROM comment_reports
+        GROUP BY comment_id
+      ) rc ON rc.comment_id = c.id
+      WHERE c.hidden=false
+      ORDER BY c.created_at DESC
       LIMIT 100
     `);
 
@@ -356,7 +363,6 @@ app.get('/api/comments', async (_, res) => {
   }
 });
 
-// Report a comment
 // =============================================================
 // REPORT A COMMENT
 // =============================================================
