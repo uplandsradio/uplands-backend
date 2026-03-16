@@ -286,13 +286,18 @@ app.post('/api/shows', async (req, res) => {
 // PRESENTERS
 // =============================================================
 app.get('/api/presenters', async (_, res) => {
-  try {
-    const r = await pool.query(`SELECT * FROM presenters ORDER BY id DESC`);
-    res.json(r.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch presenters" });
-  }
+  const r = await pool.query(`
+    SELECT p.*, 
+      COALESCE(
+        json_agg(sp.show_id) FILTER (WHERE sp.show_id IS NOT NULL), 
+        '[]'
+      ) AS show_ids
+    FROM presenters p
+    LEFT JOIN show_presenters sp ON sp.presenter_id = p.id
+    GROUP BY p.id
+    ORDER BY p.id DESC
+  `);
+  res.json(r.rows);
 });
 
 app.post('/api/presenters', async (req,res) => {
@@ -311,13 +316,27 @@ app.post('/api/presenters', async (req,res) => {
 
 app.put('/api/presenters/:id', async (req,res) => {
   const { id } = req.params;
-  const { name, bio, show_id, photo_url } = req.body;
+  const { name, bio, show_ids = [], photo_url } = req.body; // ⚡ show_ids array
+
   try {
-    const r = await pool.query(
-      `UPDATE presenters SET name=$1, bio=$2, show_id=$3, photo_url=$4 WHERE id=$5 RETURNING *`,
-      [name,bio,show_id,photo_url,id]
+    // update main presenter
+    await pool.query(
+      `UPDATE presenters SET name=$1, bio=$2, photo_url=$3 WHERE id=$4`,
+      [name,bio,photo_url,id]
     );
-    res.json(r.rows[0]);
+
+    // delete old relations
+    await pool.query(`DELETE FROM show_presenters WHERE presenter_id=$1`, [id]);
+
+    // insert new relations
+    for (const sid of show_ids) {
+      await pool.query(
+        `INSERT INTO show_presenters (show_id,presenter_id) VALUES ($1,$2)`,
+        [sid,id]
+      );
+    }
+
+    res.json({ success:true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error:"Failed to update presenter" });
