@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads + Reports + Comment Filtering)
+// UPLANDS FM – CLEAN PRODUCTION BACKEND (PostgreSQL + Uploads)
 // ------------------------------------------------------------
 process.env.TZ = "Africa/Nairobi";
 
@@ -27,13 +27,13 @@ app.use(bodyParser.json());
 types.setTypeParser(20, val => parseInt(val)); // int8 = 20
 
 // -----------------------------------------
-// DATABASE (Render / Production safe)
+// DATABASE
 // -----------------------------------------
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
-
+const db = pool;
 app.set("db", pool);
 
 // -----------------------------------------
@@ -49,16 +49,45 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + ext);
   }
 });
-
 const upload = multer({ storage });
 app.use('/uploads', express.static(uploadDir));
 
 // -----------------------------------------
-// STATIC FALLBACK
+// HELPER: Admin Check
+// -----------------------------------------
+async function isAdmin(deviceId) {
+  if (!deviceId) return false;
+  try {
+    const r = await db.query(
+      "SELECT role FROM devices WHERE device_id=$1 LIMIT 1",
+      [deviceId]
+    );
+    return r.rows.length && r.rows[0].role === "admin";
+  } catch {
+    return false;
+  }
+}
+
+// -----------------------------------------
+// FALLBACK SHOWS
 // -----------------------------------------
 const fallbackShows = [
-  { id:1, title:'Kipindi Maalumu', start_time:'06:00:00', end_time:'10:00:00', days:['mon','tue','wed','thu','fri','sat'], presenters:['Default Presenter'] },
-  { id:2, title:'Kipindi Maalumu', start_time:'10:00:00', end_time:'13:00:00', days:['mon','tue','wed','thu','fri'], presenters:['Default Presenter'] }
+  {
+    id: 1,
+    title: 'Kipindi Maalumu',
+    start_time: '06:00:00',
+    end_time: '10:00:00',
+    days: ['mon','tue','wed','thu','fri','sat'],
+    presenters: [{ name:'Default Presenter', photo_url: '' }]
+  },
+  {
+    id: 2,
+    title: 'Kipindi Maalumu',
+    start_time: '10:00:00',
+    end_time: '13:00:00',
+    days: ['mon','tue','wed','thu','fri'],
+    presenters: [{ name:'Default Presenter', photo_url: '' }]
+  }
 ];
 
 // -----------------------------------------
@@ -76,7 +105,6 @@ app.get("/api/stream/health", (_, res) => {
   try {
     const parsed = url.parse(streamUrl);
     const lib = parsed.protocol === "https:" ? https : http;
-    const timeoutMs = 3000;
 
     const request = lib.request({
       hostname: parsed.hostname,
@@ -89,15 +117,8 @@ app.get("/api/stream/health", (_, res) => {
       res.json({ status: "LIVE", checkedAt: new Date().toISOString() });
     });
 
-    request.on("error", () => {
-      res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
-    });
-
-    request.setTimeout(timeoutMs, () => {
-      request.abort();
-      res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
-    });
-
+    request.on("error", () => res.json({ status: "DOWN", checkedAt: new Date().toISOString() }));
+    request.setTimeout(3000, () => { request.abort(); res.json({ status: "DOWN", checkedAt: new Date().toISOString() }); });
     request.end();
   } catch {
     res.json({ status: "DOWN", checkedAt: new Date().toISOString() });
@@ -105,115 +126,97 @@ app.get("/api/stream/health", (_, res) => {
 });
 
 // =============================================================
-// SHOWS
+// SHOWS NOW (UPDATED: include shows without presenters)
 // =============================================================
-app.get('/api/shows', async (_, res) => {
-  try {
-    const r = await pool.query(`
-      SELECT 
-        s.id,
-        s.title,
-        s.start_time,
-        s.end_time,
-        s.days,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', p.id,
-              'name', p.name,
-              'photo_url', p.photo_url
-            )
-          ) FILTER (WHERE p.id IS NOT NULL),
-          '[]'
-        ) AS presenters
-      FROM shows s
-      LEFT JOIN presenters p ON p.show_id = s.id
-      GROUP BY s.id
-      ORDER BY s.start_time
-    `);
-
-    if (r.rows.length) return res.json(r.rows);
-
-  } catch (err) {
-    console.error(err);
-  }
-
-  res.json(fallbackShows);
-});
-
-app.put('/api/shows/:id', async (req, res) => {
-  const { id } = req.params;
-  const { title, start_time, end_time, days } = req.body;
-  const deviceId = req.headers['x-device-id'];
-
-  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
-
-  const r = await pool.query(
-    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
-    [deviceId]
-  );
-
-  if (!r.rows.length || r.rows[0].role !== 'admin') {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
-  try {
-    const q = await pool.query(
-      `UPDATE shows
-       SET title=$1, start_time=$2, end_time=$3, days=$4
-       WHERE id=$5
-       RETURNING *`,
-      [title, start_time, end_time, days, id]
-    );
-
-    if (!q.rows.length) return res.status(404).json({ error: "Show not found" });
-
-    res.json(q.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to update show" });
-  }
-});
-
-app.delete('/api/shows/:id', async (req, res) => {
-  const { id } = req.params;
-  const deviceId = req.headers['x-device-id'];
-
-  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
-
-  const r = await pool.query(
-    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
-    [deviceId]
-  );
-
-  if (!r.rows.length || r.rows[0].role !== 'admin') {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
-  try {
-    await pool.query(`DELETE FROM shows WHERE id=$1`, [id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to delete show" });
-  }
-});
-
 app.get('/api/shows/now', async (_, res) => {
   try {
     const now = new Date();
     const today = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
 
-    const r = await pool.query(`
-      SELECT 
-        s.id,
-        s.title,
-        s.start_time,
-        s.end_time,
-        s.days,
+    const r = await db.query(`
+      SELECT s.id, s.title, s.start_time, s.end_time,
+        COALESCE(s.days::text[], '{}') AS days,
         COALESCE(
           json_agg(
-            json_build_object(
+            DISTINCT jsonb_build_object(
+              'id', p.id,
+              'name', p.name,
+              'photo_url', p.photo_url
+            )
+          ) FILTER (WHERE TRUE),
+          '[]'
+        ) AS presenters
+      FROM shows s
+      LEFT JOIN show_presenters sp ON sp.show_id = s.id
+      LEFT JOIN presenters p ON p.id = sp.presenter_id
+      GROUP BY s.id
+    `);
+
+    const active = r.rows
+      .map(s => {
+        let daysArray = [];
+        try {
+          if (Array.isArray(s.days)) daysArray = s.days;
+          else daysArray = JSON.parse(s.days);
+        } catch {
+          daysArray = [];
+        }
+
+        const start = new Date(now);
+        const end = new Date(now);
+        const [sh, sm, ss] = s.start_time.split(':').map(Number);
+        const [eh, em, es] = s.end_time.split(':').map(Number);
+
+        start.setHours(sh, sm, ss, 0);
+        end.setHours(eh, em, es, 0);
+        if (end <= start) end.setDate(end.getDate() + 1);
+
+        return { ...s, start, end, days: daysArray };
+      })
+      .filter(s => s.days.includes(today))
+      .find(s => now >= s.start && now < s.end) || null;
+
+    res.json(active);
+  } catch (e) {
+    console.error("❌ /api/shows/now error:", e);
+    res.status(500).json({ error: "Failed to fetch current show" });
+  }
+});
+
+// =============================================================
+// CREATE SHOW (POST)
+app.post('/api/shows', async (req, res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
+
+  const { title, start_time, end_time, days } = req.body;
+  if (!title || !start_time || !end_time || !days || !Array.isArray(days)) {
+    return res.status(400).json({ error: "title, start_time, end_time, and days (array) are required" });
+  }
+
+  try {
+    const pgDays = `{${days.join(',')}}`;
+    const r = await db.query(
+      `INSERT INTO shows(title, start_time, end_time, days)
+       VALUES($1,$2,$3,$4) RETURNING *`,
+      [title, start_time, end_time, pgDays]
+    );
+
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("❌ Error creating show:", err);
+    res.status(500).json({ error: "Failed to create show" });
+  }
+});
+
+app.get('/api/shows', async (_, res) => {
+  try {
+    const r = await db.query(`
+      SELECT s.id, s.title, s.start_time, s.end_time,
+        COALESCE(s.days::text[], '{}') AS days,
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
               'id', p.id,
               'name', p.name,
               'photo_url', p.photo_url
@@ -222,177 +225,280 @@ app.get('/api/shows/now', async (_, res) => {
           '[]'
         ) AS presenters
       FROM shows s
-      LEFT JOIN presenters p ON p.show_id = s.id
+      LEFT JOIN show_presenters sp ON sp.show_id = s.id
+      LEFT JOIN presenters p ON p.id = sp.presenter_id
       GROUP BY s.id
+      ORDER BY s.start_time;
     `);
 
-    const active = r.rows
-      .filter(s => s.days.includes(today))
-      .map(s => {
-        const start = new Date(now);
-        const end = new Date(now);
+    // Parsers days from string to array
+    const shows = r.rows.map(s => {
+      let daysArray = [];
+      try {
+        if (Array.isArray(s.days)) daysArray = s.days;
+        else daysArray = JSON.parse(s.days);
+      } catch {
+        daysArray = [];
+      }
+      return { ...s, days: daysArray };
+    });
 
-        const [sh, sm, ss] = s.start_time.split(':');
-        const [eh, em, es] = s.end_time.split(':');
-
-        start.setHours(parseInt(sh), parseInt(sm), parseInt(ss), 0);
-        end.setHours(parseInt(eh), parseInt(em), parseInt(es), 0);
-
-        if (end <= start) end.setDate(end.getDate() + 1);
-
-        return { ...s, start, end };
-      })
-      .find(s => now >= s.start && now < s.end) || null;
-
-    res.json(active);
-
-  } catch (err) {
-    console.error("SHOW NOW ERROR:", err);
-    res.json(null);
+    res.json(shows);
+  } catch (e) {
+    console.error("❌ /api/shows error:", e);
+    res.status(500).json({ error: "Failed to fetch shows" });
   }
 });
 
-app.post('/api/shows', async (req, res) => {
-  const { title, start_time, end_time, days } = req.body;
+// =============================================================
+// UPDATE SHOW (PUT)
+app.put('/api/shows/:id', async (req, res) => {
   const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
 
-  if (!deviceId) return res.status(403).json({ error: "Forbidden" });
+  const { id } = req.params;
+  const { title, start_time, end_time, days } = req.body;
 
-  const r = await pool.query(
-    `SELECT role FROM devices WHERE device_id=$1 LIMIT 1`,
-    [deviceId]
-  );
+  if (!title || !start_time || !end_time || !days || !Array.isArray(days)) {
+    return res.status(400).json({ error: "title, start_time, end_time, and days (array) are required" });
+  }
 
-  if (!r.rows.length || r.rows[0].role !== 'admin') {
+  try {
+    const pgDays = `{${days.join(',')}}`;
+
+    const r = await db.query(
+      `UPDATE shows
+       SET title=$1, start_time=$2, end_time=$3, days=$4
+       WHERE id=$5
+       RETURNING *`,
+      [title, start_time, end_time, pgDays, id]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error: "Show not found" });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("❌ Error updating show:", err);
+    res.status(500).json({ error: "Failed to update show" });
+  }
+});
+
+app.delete('/api/shows/:id', async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error:"Forbidden" });
+
+  const { id } = req.params;
+  try {
+    await db.query(`DELETE FROM shows WHERE id=$1`, [id]);
+    await db.query(`DELETE FROM show_presenters WHERE show_id=$1`, [id]);
+    res.json({ success:true });
+  } catch(err) {
+    console.error(err);
+    res.status(500).json({ error:"Failed to delete show" });
+  }
+});
+
+
+app.delete('/api/shows/:id/presenters/:presenterId', async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error:"Forbidden" });
+
+  const { id, presenterId } = req.params;
+
+  try {
+    await db.query(
+      `DELETE FROM show_presenters WHERE show_id=$1 AND presenter_id=$2`,
+      [id, presenterId]
+    );
+    res.json({ success:true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ error:"Failed to remove presenter" });
+  }
+});
+
+// =============================================================
+// ASSIGN PRESENTER TO SHOW (MANY-TO-MANY)
+// =============================================================
+app.post('/api/shows/:id/presenters', async (req,res) => {
+  const { presenter_id } = req.body;
+  const show_id = req.params.id;
+
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
+  if (!presenter_id) {
+    return res.status(400).json({ error: "presenter_id is required" });
+  }
+
   try {
-    const q = await pool.query(
-      `INSERT INTO shows(title, start_time, end_time, days)
-       VALUES($1,$2,$3,$4)
-       RETURNING *`,
-      [title, start_time, end_time, days]
+    await db.query(
+      `INSERT INTO show_presenters(show_id, presenter_id)
+       VALUES($1,$2)
+       ON CONFLICT DO NOTHING`,
+      [show_id, presenter_id]
     );
 
-    res.json(q.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to create show" });
+    res.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to assign presenter" });
   }
 });
 
-// =============================================================
-// PRESENTERS
-// =============================================================
-app.get('/api/presenters', async (_, res) => {
-  const r = await pool.query(`
-    SELECT p.*, 
-      COALESCE(
-        json_agg(sp.show_id) FILTER (WHERE sp.show_id IS NOT NULL), 
-        '[]'
-      ) AS show_ids
-    FROM presenters p
-    LEFT JOIN show_presenters sp ON sp.presenter_id = p.id
-    GROUP BY p.id
-    ORDER BY p.id DESC
-  `);
-  res.json(r.rows);
-});
+// ==========================
+// CREATE OR UPDATE PRESENTER
+// ==========================
+app.post("/api/presenters", async (req, res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
 
-app.post('/api/presenters', async (req,res) => {
-  const { name, bio, show_id, photo_url } = req.body;
-  try {
-    const r = await pool.query(
-      `INSERT INTO presenters(name,bio,show_id,photo_url) VALUES($1,$2,$3,$4) RETURNING *`,
-      [name,bio,show_id,photo_url]
-    );
-    res.json(r.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error:"Failed to create presenter" });
-  }
-});
+  const { name, bio, photo_url, show_ids } = req.body;
 
-app.put('/api/presenters/:id', async (req,res) => {
-  const { id } = req.params;
-  const { name, bio, show_ids = [], photo_url } = req.body; // ⚡ show_ids array
+  if (!name) return res.status(400).json({ error: "name is required" });
 
   try {
-    // update main presenter
-    await pool.query(
-      `UPDATE presenters SET name=$1, bio=$2, photo_url=$3 WHERE id=$4`,
-      [name,bio,photo_url,id]
+    // Insert presenter first
+    const presenterResult = await db.query(
+      `INSERT INTO presenters (name, bio, photo_url, created_at)
+       VALUES ($1, $2, $3, NOW()) RETURNING id`,
+      [name, bio || "", photo_url || ""]
     );
 
-    // delete old relations
-    await pool.query(`DELETE FROM show_presenters WHERE presenter_id=$1`, [id]);
+    const presenterId = presenterResult.rows[0].id;
 
-    // insert new relations
-    for (const sid of show_ids) {
-      await pool.query(
-        `INSERT INTO show_presenters (show_id,presenter_id) VALUES ($1,$2)`,
-        [sid,id]
+    // Assign to shows if any
+    if (Array.isArray(show_ids) && show_ids.length > 0) {
+      const insertLinks = show_ids.map(showId =>
+        db.query(
+          `INSERT INTO show_presenters (show_id, presenter_id)
+           VALUES($1,$2) ON CONFLICT DO NOTHING`,
+          [showId, presenterId]
+        )
       );
+      await Promise.all(insertLinks);
     }
 
-    res.json({ success:true });
+    res.json({ success: true, id: presenterId });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error creating presenter:", err);
+    res.status(500).json({ error: "Failed to create presenter" });
+  }
+});
+
+app.put("/api/presenters/:id", async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
+
+  const { id } = req.params;
+  const { name, bio, photo_url, show_ids } = req.body;
+
+  if (!name) return res.status(400).json({ error: "name is required" });
+
+  try {
+    // Update presenter
+    const r = await db.query(
+      `UPDATE presenters SET name=$1, bio=$2, photo_url=$3 WHERE id=$4 RETURNING *`,
+      [name, bio || "", photo_url || "", id]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error:"Presenter not found" });
+
+    // Sync show assignments
+    if (Array.isArray(show_ids)) {
+      // 1️⃣ Remove all old links
+      await db.query(`DELETE FROM show_presenters WHERE presenter_id=$1`, [id]);
+
+      // 2️⃣ Insert new links
+      const insertLinks = show_ids.map(showId =>
+        db.query(
+          `INSERT INTO show_presenters (show_id, presenter_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+          [showId, id]
+        )
+      );
+      await Promise.all(insertLinks);
+    }
+
+    res.json({ success:true, presenter: r.rows[0] });
+  } catch(err){
+    console.error("❌ Error updating presenter:", err);
     res.status(500).json({ error:"Failed to update presenter" });
   }
 });
 
-app.delete('/api/presenters/:id', async (req,res) => {
-  const { id } = req.params;
-  const deviceId = req.headers['x-device-id'];
-  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
-
-  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
+// =============================================================
+// GET ALL PRESENTERS
+app.get('/api/presenters', async (req, res) => {
   try {
-    await pool.query(`DELETE FROM presenters WHERE id=$1`, [id]);
-    res.json({ success:true });
+    const r = await db.query(`SELECT id, name, bio, photo_url FROM presenters ORDER BY name`);
+    res.json(r.rows);
   } catch (err) {
+    console.error("❌ /api/presenters GET error:", err);
+    res.status(500).json({ error: "Failed to fetch presenters" });
+  }
+});
+
+app.delete('/api/presenters/:id', async (req,res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error:"Forbidden" });
+
+  const { id } = req.params;
+  try {
+    await db.query(`DELETE FROM presenters WHERE id=$1`, [id]);
+    await db.query(`DELETE FROM show_presenters WHERE presenter_id=$1`, [id]);
+    res.json({ success:true });
+  } catch(err){
     console.error(err);
     res.status(500).json({ error:"Failed to delete presenter" });
   }
 });
 
 // =============================================================
-// COMMENTS + FILTER + BLOCK (Persistent in PostgreSQL)
+// LISTENERS (UNCHANGED)
 // =============================================================
-const offensiveWords = ['badword1','badword2','badword3']; // TODO: add real list
-
-function containsOffensive(text) {
-  return offensiveWords.some(w => text.toLowerCase().includes(w));
-}
-
-// Post a comment
-app.post('/api/comments', async (req,res) => {
-  const { username, message } = req.body;
-  if (!message) return res.status(400).json({ error:"Message required" });
-
-  const hidden = containsOffensive(message);
+app.post('/api/listeners/start', async (req,res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error:"device_id required" });
 
   try {
-    const deviceId = req.headers['x-device-id'] || 'guest'; // au generate unique id
-const r = await pool.query(
-  `INSERT INTO comments(username, message, hidden, device_id, created_at)
-   VALUES($1,$2,$3,$4,NOW())
-   RETURNING *`,
-  [username || "Guest", message, hidden, deviceId]
-);
-
-    res.json(r.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error:"Failed to save comment" });
-  }
+    await db.query(`INSERT INTO listener_logs(device_id, listen_start) VALUES($1, NOW())`, [device_id]);
+    res.json({ success:true });
+  } catch(err){ console.error(err); res.status(500).json({ error:"Failed to start listener" }); }
 });
 
-// Get visible comments
+app.post('/api/listeners/stop', async (req,res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error:"device_id required" });
+
+  try {
+    await db.query(`UPDATE listener_logs SET listen_end=NOW() WHERE device_id=$1 AND listen_end IS NULL`, [device_id]);
+    res.json({ success:true });
+  } catch(err){ console.error(err); res.status(500).json({ error:"Failed to stop listener" }); }
+});
+
+app.get('/api/listeners', async (req, res) => {
+  const { period } = req.query;
+  let query = '';
+  switch (period) {
+    case 'daily': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start::date=CURRENT_DATE`; break;
+    case 'weekly': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start>=date_trunc('week', CURRENT_DATE)`; break;
+    case 'monthly': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start>=date_trunc('month', CURRENT_DATE)`; break;
+    case 'quarterly': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start>=CURRENT_DATE-INTERVAL '3 months'`; break;
+    case 'half_year': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start>=CURRENT_DATE-INTERVAL '6 months'`; break;
+    case 'yearly': query = `SELECT COUNT(DISTINCT device_id) AS count FROM listener_logs WHERE listen_start>=date_trunc('year', CURRENT_DATE)`; break;
+    default: return res.status(400).json({ error:'Invalid period' });
+  }
+
+  try {
+    const result = await db.query(query);
+    res.json({ count: result.rows[0].count });
+  } catch(e){ console.error(e); res.status(500).json({ error:'Server error' }); }
+});
+
+// =============================================================
+// COMMENTS CRUD + REPORT (UNCHANGED)
+// =============================================================
 app.get('/api/comments', async (_, res) => {
   try {
     const r = await pool.query(`
@@ -423,108 +529,120 @@ app.get('/api/comments', async (_, res) => {
   }
 });
 
-// =============================================================
-// REPORT A COMMENT
-// =============================================================
-app.post('/api/report-comment', async (req, res) => {
-  const { commentId, reason } = req.body;
+app.post('/api/comments', async (req,res) => {
+  const { username,message } = req.body;
   const deviceId = req.headers['x-device-id'];
 
-  if (!commentId || !deviceId) return res.status(400).json({ error: "commentId and deviceId required" });
-
-  const commentIdInt = parseInt(commentId, 10);
-  if (isNaN(commentIdInt)) return res.status(400).json({ error: "Invalid commentId" });
+  if (!message) return res.status(400).json({ error:"Message required" });
 
   try {
-    const commentCheck = await pool.query(
-      `SELECT id FROM comments WHERE id=$1`,
-      [commentIdInt]
+    const r = await db.query(
+  `INSERT INTO comments(username, message, device_id, hidden, reported, created_at)
+   VALUES($1, $2, $3, $4, $5, NOW()) RETURNING *`,
+  [username || 'Guest', message, deviceId || null, false, false]
+);
+
+    res.json(r.rows[0]);
+  } catch(err){
+    console.error(err);
+    res.status(500).json({ error:"Failed to create comment" });
+  }
+});
+
+app.delete('/api/comments/:id', async (req,res) => {
+  const { id } = req.params;
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error:"Forbidden" });
+
+  try {
+    const r = await db.query(`DELETE FROM comments WHERE id=$1 RETURNING *`, [id]);
+    if (!r.rows.length) return res.status(404).json({ error:"Comment not found" });
+    res.json({ success:true });
+  } catch(err){ console.error(err); res.status(500).json({ error:"Failed to delete comment" }); }
+});
+
+app.post('/api/comments/:id/report', async (req,res) => {
+  const { id } = req.params;
+  const { device_id } = req.body;  // 🔹 tumia body
+
+  if (!device_id) {
+    return res.status(400).json({ error: "Device ID is required to report a comment" });
+  }
+
+  try {
+    await db.query(
+      `INSERT INTO comment_reports(comment_id, device_id, created_at)
+       VALUES($1, $2, NOW())
+       ON CONFLICT (comment_id, device_id) DO NOTHING`,
+      [id, device_id]
     );
 
-    if (!commentCheck.rows.length) return res.status(404).json({ error: "Comment not found" });
-
-    const r = await pool.query(
-      `INSERT INTO comment_reports (comment_id, device_id, reason, created_at)
-       VALUES ($1,$2,$3,NOW()) RETURNING id`,
-      [commentIdInt, deviceId, reason || "Inappropriate"]
+    const r = await db.query(
+      `SELECT COUNT(*) AS reports FROM comment_reports WHERE comment_id=$1`,
+      [id]
     );
 
-    res.json({ success:true, reportId: r.rows[0].id });
+    const reports = parseInt(r.rows[0].reports, 10);
 
-  } catch (err) {
-    if (err.code === '23505') return res.status(400).json({ error:"You already reported this comment" });
-    console.error("REPORT COMMENT ERROR:", err);
+    if (reports >= 10) {
+      await db.query(`UPDATE comments SET hidden=true WHERE id=$1`, [id]);
+    }
+
+    res.json({ success:true, reports });
+
+  } catch(err){
+    console.error(err);
     res.status(500).json({ error:"Failed to report comment" });
   }
 });
 
-// Get all reports (admin only)
-app.get('/api/reports', async (req,res) => {
+app.get('/api/comments/reported', async (req,res) => {
   const deviceId = req.headers['x-device-id'];
-  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
-
-  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error:"Forbidden" });
 
   try {
-    const reportsRes = await pool.query(`SELECT * FROM comment_reports ORDER BY created_at DESC`);
-    res.json(reportsRes.rows);
-  } catch (err) {
+    // Chukua comments zilizo na reports zaidi ya 0 na ambazo hazija hide
+    const r = await db.query(`
+      SELECT c.*, COALESCE(rc.reports_count, 0) AS reports_count
+      FROM comments c
+      LEFT JOIN (
+        SELECT comment_id, COUNT(*) AS reports_count
+        FROM comment_reports
+        GROUP BY comment_id
+      ) rc ON rc.comment_id = c.id
+      WHERE rc.reports_count > 0
+      ORDER BY rc.reports_count DESC, c.created_at DESC
+    `);
+
+    res.json(r.rows);
+
+  } catch(err){
     console.error(err);
-    res.status(500).json({ error:"Failed to fetch reports" });
-  }
-});
-
-// Delete a comment (admin only)
-app.delete('/api/comments/:id', async (req,res) => {
-  const deviceId = req.headers['x-device-id'];
-  if (!deviceId) return res.status(403).json({ error:"Forbidden" });
-
-  const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1`, [deviceId]);
-  if (!r.rows.length || r.rows[0].role !== 'admin') return res.status(403).json({ error:"Forbidden" });
-
-  try {
-    const del = await pool.query(`DELETE FROM comments WHERE id=$1`, [req.params.id]);
-    if (del.rowCount === 0) return res.status(404).json({ error:"Not found" });
-    res.json({ success:true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error:"Failed to delete comment" });
+    res.status(500).json({ error:"Failed to fetch reported comments" });
   }
 });
 
 // =============================================================
 // LIVE STREAM
 // =============================================================
-app.get('/api/live-stream', (_, res) => {
-  res.json({
-    url: process.env.RADIO_STREAM,
-    show: null
-  });
-});
-
-// =============================================================
-// 🔐 ADMIN CHECK
-// =============================================================
-app.get('/api/check-admin', async (req,res) => {
-  try {
-    const deviceId = req.query.device_id;
-    if (!deviceId) return res.json({ isAdmin:false });
-
-    const r = await pool.query(`SELECT role FROM devices WHERE device_id=$1 LIMIT 1`, [deviceId]);
-    res.json({ isAdmin: r.rows.length && r.rows[0].role === 'admin' });
-  } catch {
-    res.json({ isAdmin:false });
-  }
-});
+app.get('/api/live-stream', (_,res) => res.json({ url:process.env.RADIO_STREAM, show:null }));
 
 // =============================================================
 // IMAGE UPLOAD
 // =============================================================
 app.post('/api/upload_presenter_image', upload.single('file'), (req,res) => {
   if (!req.file) return res.status(400).json({ error:"No file uploaded" });
-  const url = `/uploads/${req.file.filename}`;
-  res.json({ url });
+  const fullUrl = `${process.env.BASE_URL}/uploads/${req.file.filename}`;
+  res.json({ url: fullUrl });
+});
+
+// =============================================================
+// ADMIN CHECK
+// =============================================================
+app.get('/api/check-admin', async (req,res) => {
+  const deviceId = req.query.device_id;
+  const admin = await isAdmin(deviceId);
+  res.json({ isAdmin: admin });
 });
 
 // =============================================================
