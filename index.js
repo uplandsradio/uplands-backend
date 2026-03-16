@@ -110,15 +110,34 @@ app.get("/api/stream/health", (_, res) => {
 app.get('/api/shows', async (_, res) => {
   try {
     const r = await pool.query(`
-      SELECT s.id, s.title, s.start_time, s.end_time, s.days,
-      COALESCE(json_agg(p.name) FILTER (WHERE p.name IS NOT NULL),'[]') AS presenters
+      SELECT 
+        s.id,
+        s.title,
+        s.start_time,
+        s.end_time,
+        s.days,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', p.id,
+              'name', p.name,
+              'photo_url', p.photo_url
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'
+        ) AS presenters
       FROM shows s
       LEFT JOIN presenters p ON p.show_id = s.id
       GROUP BY s.id
       ORDER BY s.start_time
     `);
+
     if (r.rows.length) return res.json(r.rows);
-  } catch {}
+
+  } catch (err) {
+    console.error(err);
+  }
+
   res.json(fallbackShows);
 });
 
@@ -186,8 +205,22 @@ app.get('/api/shows/now', async (_, res) => {
     const today = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
 
     const r = await pool.query(`
-      SELECT s.*, COALESCE(json_agg(p.name)
-      FILTER (WHERE p.name IS NOT NULL),'[]') AS presenters
+      SELECT 
+        s.id,
+        s.title,
+        s.start_time,
+        s.end_time,
+        s.days,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', p.id,
+              'name', p.name,
+              'photo_url', p.photo_url
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'
+        ) AS presenters
       FROM shows s
       LEFT JOIN presenters p ON p.show_id = s.id
       GROUP BY s.id
@@ -198,19 +231,23 @@ app.get('/api/shows/now', async (_, res) => {
       .map(s => {
         const start = new Date(now);
         const end = new Date(now);
-        const [sh,sm,ss] = s.start_time.split(':');
-        const [eh,em,es] = s.end_time.split(':');
 
-        start.setHours(sh,sm,ss,0);
-        end.setHours(eh,em,es,0);
-        if (end <= start) end.setDate(end.getDate()+1);
+        const [sh, sm, ss] = s.start_time.split(':');
+        const [eh, em, es] = s.end_time.split(':');
+
+        start.setHours(parseInt(sh), parseInt(sm), parseInt(ss), 0);
+        end.setHours(parseInt(eh), parseInt(em), parseInt(es), 0);
+
+        if (end <= start) end.setDate(end.getDate() + 1);
 
         return { ...s, start, end };
       })
       .find(s => now >= s.start && now < s.end) || null;
 
     res.json(active);
-  } catch {
+
+  } catch (err) {
+    console.error("SHOW NOW ERROR:", err);
     res.json(null);
   }
 });
