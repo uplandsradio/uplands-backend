@@ -126,7 +126,7 @@ app.get("/api/stream/health", (_, res) => {
 });
 
 // =============================================================
-// SHOWS NOW (UPDATED: include shows without presenters + stable days parsing)
+// SHOWS NOW (UPDATED: include shows without presenters)
 // =============================================================
 app.get('/api/shows/now', async (_, res) => {
   try {
@@ -154,8 +154,13 @@ app.get('/api/shows/now', async (_, res) => {
 
     const active = r.rows
       .map(s => {
-        // Defensive: ensure days is always array
-        const daysArray = Array.isArray(s.days) ? s.days : [];
+        let daysArray = [];
+        try {
+          if (Array.isArray(s.days)) daysArray = s.days;
+          else daysArray = JSON.parse(s.days);
+        } catch {
+          daysArray = [];
+        }
 
         const start = new Date(now);
         const end = new Date(now);
@@ -204,9 +209,6 @@ app.post('/api/shows', async (req, res) => {
   }
 });
 
-// =============================================================
-// GET ALL SHOWS (UPDATED: stable days parsing)
-// =============================================================
 app.get('/api/shows', async (_, res) => {
   try {
     const r = await db.query(`
@@ -229,8 +231,15 @@ app.get('/api/shows', async (_, res) => {
       ORDER BY s.start_time;
     `);
 
+    // Parsers days from string to array
     const shows = r.rows.map(s => {
-      const daysArray = Array.isArray(s.days) ? s.days : [];
+      let daysArray = [];
+      try {
+        if (Array.isArray(s.days)) daysArray = s.days;
+        else daysArray = JSON.parse(s.days);
+      } catch {
+        daysArray = [];
+      }
       return { ...s, days: daysArray };
     });
 
