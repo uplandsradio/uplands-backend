@@ -509,6 +509,7 @@ app.get('/api/comments', async (_, res) => {
         c.id,
         c.username,
         c.message,
+        c.show_name,
         c.hidden,
         c.device_id,
         c.created_at,
@@ -533,16 +534,23 @@ app.get('/api/comments', async (_, res) => {
 });
 
 app.post('/api/comments', async (req,res) => {
-  const { username,message } = req.body;
+  const { username,message,show_name } = req.body;
   const deviceId = req.headers['x-device-id'];
 
   if (!message) return res.status(400).json({ error:"Message required" });
 
   try {
     const r = await db.query(
-  `INSERT INTO comments(username, message, device_id, hidden, reported, created_at)
-   VALUES($1, $2, $3, $4, $5, NOW()) RETURNING *`,
-  [username || 'Guest', message, deviceId || null, false, false]
+  `INSERT INTO comments(username, message, show_name, device_id, hidden, reported, created_at)
+   VALUES($1, $2, $3, $4, $5, $6, NOW()) RETURNING *`,
+  [
+  username || 'Guest',
+  message,
+  show_name || 'Other', // 🔥 muhimu
+  deviceId || null,
+  false,
+  false
+]
 );
 
     res.json(r.rows[0]);
