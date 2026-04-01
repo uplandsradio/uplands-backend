@@ -390,6 +390,13 @@ app.post("/api/presenters", async (req, res) => {
   }
 });
 
+app.post('/api/upload_ad_image', upload.single('file'), (req,res) => {
+  if (!req.file) return res.status(400).json({ error:"No file uploaded" });
+
+  const fullUrl = `${process.env.BASE_URL}/uploads/${req.file.filename}`;
+  res.json({ url: fullUrl });
+});
+
 app.put("/api/presenters/:id", async (req,res) => {
   const deviceId = req.headers['x-device-id'];
   if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
@@ -630,6 +637,124 @@ app.get('/api/comments/reported', async (req,res) => {
   } catch(err){
     console.error(err);
     res.status(500).json({ error:"Failed to fetch reported comments" });
+  }
+});
+
+// =============================================================
+// ADS SYSTEM
+// =============================================================
+
+// GET ACTIVE ADS (HOME SCREEN)
+app.get('/api/ads', async (req, res) => {
+  try {
+    const r = await db.query(`
+      SELECT * FROM ads
+      WHERE is_active = true
+      AND CURRENT_DATE BETWEEN start_date AND end_date
+      AND CURRENT_TIME BETWEEN start_time AND end_time
+      ORDER BY RANDOM()
+      LIMIT 10
+    `);
+
+    res.json(r.rows);
+  } catch (err) {
+    console.error("❌ Fetch ads error:", err);
+    res.status(500).json({ error: "Failed to fetch ads" });
+  }
+});
+
+// ADMIN: GET ALL ADS
+app.get('/api/admin/ads', async (req, res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
+
+  try {
+    const r = await db.query(`SELECT * FROM ads ORDER BY created_at DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch ads" });
+  }
+});
+
+// CREATE / UPDATE AD
+app.post('/api/admin/ads', async (req, res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
+
+  const {
+    id,
+    image,
+    link,
+    link_type,
+    start_date,
+    end_date,
+    start_time,
+    end_time
+  } = req.body;
+
+  try {
+    if (id) {
+      // UPDATE
+      await db.query(`
+        UPDATE ads SET
+          image=$1,
+          link=$2,
+          link_type=$3,
+          start_date=$4,
+          end_date=$5,
+          start_time=$6,
+          end_time=$7
+        WHERE id=$8
+      `, [image, link, link_type, start_date, end_date, start_time, end_time, id]);
+
+    } else {
+      // INSERT
+      await db.query(`
+        INSERT INTO ads (image, link, link_type, start_date, end_date, start_time, end_time)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `, [image, link, link_type, start_date, end_date, start_time, end_time]);
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("❌ Save ad error:", err);
+    res.status(500).json({ error: "Failed to save ad" });
+  }
+});
+
+// DELETE AD
+app.delete('/api/admin/ads/:id', async (req, res) => {
+  const deviceId = req.headers['x-device-id'];
+  if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
+
+  try {
+    await db.query(`DELETE FROM ads WHERE id=$1`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete ad" });
+  }
+});
+
+// TRACK VIEW
+app.post('/api/ads/view/:id', async (req, res) => {
+  try {
+    await db.query(`UPDATE ads SET views = views + 1 WHERE id=$1`, [req.params.id]);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed" });
+  }
+});
+
+// TRACK CLICK
+app.post('/api/ads/click/:id', async (req, res) => {
+  try {
+    await db.query(`UPDATE ads SET clicks = clicks + 1 WHERE id=$1`, [req.params.id]);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed" });
   }
 });
 
