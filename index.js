@@ -677,6 +677,8 @@ app.get('/api/admin/ads', async (req, res) => {
 
 // CREATE / UPDATE AD
 app.post('/api/admin/ads', async (req, res) => {
+  console.log("📩 ADMIN ADS REQUEST:", req.body);
+  console.log("🧠 DEVICE ID:", req.headers['x-device-id']);
   const deviceId = req.headers['x-device-id'];
   if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
 
@@ -714,7 +716,8 @@ const result = await db.query(`
   RETURNING *
 `, [image, link, link_type, start_date, end_date, start_time, end_time]);
 
-console.log("🔥 AD INSERT RESULT:", result.rows);
+console.log("🔥 INSERT RESULT:", result.rows);
+return res.json(result.rows[0]);
     }
 
     res.json({ success: true });
