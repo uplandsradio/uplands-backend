@@ -650,6 +650,10 @@ app.get('/api/ads', async (req, res) => {
     const r = await db.query(`
       SELECT * FROM ads
 WHERE COALESCE(is_active, true) = true
+AND start_date <= CURRENT_DATE
+AND end_date >= CURRENT_DATE
+AND start_time <= CURRENT_TIME
+AND end_time >= CURRENT_TIME
 ORDER BY id DESC
 LIMIT 10
     `);
@@ -696,23 +700,44 @@ app.post('/api/admin/ads', async (req, res) => {
   try {
     if (id) {
       // UPDATE
-      await db.query(`
-        UPDATE ads SET
-          image=$1,
-          link=$2,
-          link_type=$3,
-          start_date=$4,
-          end_date=$5,
-          start_time=$6,
-          end_time=$7
-        WHERE id=$8
-      `, [image, link, link_type, start_date, end_date, start_time, end_time, id]);
+      const result = await db.query(`
+  UPDATE ads SET
+    image=$1,
+    link=$2,
+    link_type=$3,
+    start_date=$4,
+    end_date=$5,
+    start_time=$6,
+    end_time=$7
+  WHERE id=$8
+  RETURNING *
+`, [image, link, link_type, start_date, end_date, start_time, end_time, id]);
+
+return res.json(result.rows[0]);
 
     } else {
       // INSERT
 const result = await db.query(`
-  INSERT INTO ads (image, link, link_type, start_date, end_date, start_time, end_time, is_active)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,true)
+  INSERT INTO ads (
+    image,
+    link,
+    link_type,
+    start_date,
+    end_date,
+    start_time,
+    end_time,
+    is_active
+  )
+  VALUES (
+    $1,
+    $2,
+    $3,
+    $4::date,
+    $5::date,
+    $6::time,
+    $7::time,
+    true
+  )
   RETURNING *
 `, [image, link, link_type, start_date, end_date, start_time, end_time]);
 
