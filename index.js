@@ -649,11 +649,9 @@ app.get('/api/ads', async (req, res) => {
   try {
     const r = await db.query(`
       SELECT * FROM ads
-      WHERE is_active = true
-      AND CURRENT_DATE BETWEEN start_date AND end_date
-      AND CURRENT_TIME BETWEEN start_time AND end_time
-      ORDER BY RANDOM()
-      LIMIT 10
+WHERE COALESCE(is_active, true) = true
+ORDER BY id DESC
+LIMIT 10
     `);
 
     res.json(r.rows);
@@ -710,10 +708,13 @@ app.post('/api/admin/ads', async (req, res) => {
 
     } else {
       // INSERT
-      await db.query(`
-        INSERT INTO ads (image, link, link_type, start_date, end_date, start_time, end_time)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
-      `, [image, link, link_type, start_date, end_date, start_time, end_time]);
+const result = await db.query(`
+  INSERT INTO ads (image, link, link_type, start_date, end_date, start_time, end_time, is_active)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,true)
+  RETURNING *
+`, [image, link, link_type, start_date, end_date, start_time, end_time]);
+
+console.log("🔥 AD INSERT RESULT:", result.rows);
     }
 
     res.json({ success: true });
