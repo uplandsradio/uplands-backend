@@ -688,7 +688,7 @@ app.post('/api/admin/ads', async (req, res) => {
 
   const {
     id,
-    image,
+    image_url,
     link,
     link_type,
     start_date,
@@ -702,7 +702,7 @@ app.post('/api/admin/ads', async (req, res) => {
       // UPDATE
       const result = await db.query(`
   UPDATE ads SET
-    image=$1,
+    image_url=$1,
     link=$2,
     link_type=$3,
     start_date=$4,
@@ -711,7 +711,7 @@ app.post('/api/admin/ads', async (req, res) => {
     end_time=$7
   WHERE id=$8
   RETURNING *
-`, [image, link, link_type, start_date, end_date, start_time, end_time, id]);
+`, [image_url, link, link_type, start_date, end_date, start_time, end_time, id]);
 
 return res.json(result.rows[0]);
 
@@ -719,7 +719,7 @@ return res.json(result.rows[0]);
       // INSERT
 const result = await db.query(`
   INSERT INTO ads (
-    image,
+    image_url,
     link,
     link_type,
     start_date,
@@ -739,13 +739,12 @@ const result = await db.query(`
     true
   )
   RETURNING *
-`, [image, link, link_type, start_date, end_date, start_time, end_time]);
+`, [image_url, link, link_type, start_date, end_date, start_time, end_time]);
 
 console.log("🔥 INSERT RESULT:", result.rows);
 return res.json(result.rows[0]);
     }
 
-    res.json({ success: true });
 
   } catch (err) {
     console.error("❌ Save ad error:", err);
