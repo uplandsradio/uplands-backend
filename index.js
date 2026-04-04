@@ -732,10 +732,10 @@ const result = await db.query(`
     $1,
     $2,
     $3,
-    $4::date,
-    $5::date,
-    $6::time,
-    $7::time,
+    start_date: $4,
+end_date: $5,
+start_time: $6,
+end_time: $7,
     true
   )
   RETURNING *
