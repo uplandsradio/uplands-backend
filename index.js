@@ -746,9 +746,9 @@ return res.json(result.rows[0]);
 
 
   } catch (err) {
-    console.error("❌ Save ad error:", err);
-    res.status(500).json({ error: "Failed to save ad" });
-  }
+  console.error("❌ Save ad error:", err);
+  res.status(500).json({ error: err.message });
+}
 });
 
 // DELETE AD
