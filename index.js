@@ -728,18 +728,17 @@ const result = await db.query(`
     end_time,
     is_active
   )
-  VALUES (
-    $1,
-    $2,
-    $3,
-    start_date: $4,
-end_date: $5,
-start_time: $6,
-end_time: $7,
-    true
-  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,true)
   RETURNING *
-`, [image_url, link, link_type, start_date, end_date, start_time, end_time]);
+`, [
+  image_url,
+  link,
+  link_type,
+  start_date,
+  end_date,
+  start_time,
+  end_time
+]);// ------------------------------------------------------------
 
 console.log("🔥 INSERT RESULT:", result.rows);
 return res.json(result.rows[0]);
