@@ -649,12 +649,14 @@ app.get('/api/ads', async (req, res) => {
   try {
     const r = await db.query(`
       SELECT * FROM ads
-WHERE COALESCE(is_active, true) = true
-AND start_date <= CURRENT_DATE
-AND end_date >= CURRENT_DATE
-AND start_time <= CURRENT_TIME
-AND end_time >= CURRENT_TIME
-ORDER BY id DESC
+WHERE is_active = true
+AND CURRENT_DATE BETWEEN start_date AND end_date
+AND (
+  start_time IS NULL 
+  OR end_time IS NULL 
+  OR CURRENT_TIME BETWEEN start_time AND end_time
+)
+ORDER BY id DESC;
 LIMIT 10
     `);
 
