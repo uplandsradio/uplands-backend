@@ -394,7 +394,7 @@ app.post('/api/upload_ad_image', upload.single('file'), (req,res) => {
   if (!req.file) return res.status(400).json({ error:"No file uploaded" });
 
   const fullUrl = `${process.env.BASE_URL}/uploads/${req.file.filename}`;
-  res.json({ url: fullUrl });
+  res.json({ imageUrl: fullUrl });
 });
 
 app.put("/api/presenters/:id", async (req,res) => {
