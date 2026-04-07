@@ -654,7 +654,7 @@ AND CURRENT_DATE BETWEEN start_date AND end_date
 AND (
   start_time IS NULL 
   OR end_time IS NULL 
-  OR (CURRENT_TIME AT TIME ZONE 'Africa/Nairobi' BETWEEN start_time AND end_time)
+  OR CURRENT_TIME BETWEEN start_time AND end_time
 )
 ORDER BY id DESC
 LIMIT 10;
