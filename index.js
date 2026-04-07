@@ -650,12 +650,7 @@ app.get('/api/ads', async (req, res) => {
     const r = await db.query(`
       SELECT * FROM ads
 WHERE is_active = true
-AND CURRENT_DATE BETWEEN start_date AND end_date
-AND (
-  start_time IS NULL 
-  OR end_time IS NULL 
-  OR CURRENT_TIME BETWEEN start_time AND end_time
-)
+AND NOW() BETWEEN start_at AND end_at
 ORDER BY id DESC
 LIMIT 10;
     `);
@@ -689,15 +684,12 @@ app.post('/api/admin/ads', async (req, res) => {
   if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
 
   const {
-    id,
-    image_url,
-    link,
-    link_type,
-    start_date,
-    end_date,
-    start_time,
-    end_time
-  } = req.body;
+  image_url,
+  link,
+  link_type,
+  start_at,
+  end_at
+} = req.body;
 
   try {
     if (id) {
@@ -724,23 +716,19 @@ const result = await db.query(`
     image_url,
     link,
     link_type,
-    start_date,
-    end_date,
-    start_time,
-    end_time,
+    start_at,
+    end_at,
     is_active
   )
-  VALUES ($1,$2,$3,$4,$5,$6,$7,true)
+  VALUES ($1,$2,$3,$4,$5,true)
   RETURNING *
 `, [
   image_url,
   link,
   link_type,
-  start_date,
-  end_date,
-  start_time,
-  end_time
-]);// ------------------------------------------------------------
+  start_at,
+  end_at
+]);
 
 console.log("🔥 INSERT RESULT:", result.rows);
 return res.json(result.rows[0]);
