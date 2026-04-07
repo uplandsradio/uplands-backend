@@ -684,6 +684,7 @@ app.post('/api/admin/ads', async (req, res) => {
   if (!await isAdmin(deviceId)) return res.status(403).json({ error: "Forbidden" });
 
   const {
+  id,
   image_url,
   link,
   link_type,
@@ -696,16 +697,14 @@ app.post('/api/admin/ads', async (req, res) => {
       // UPDATE
       const result = await db.query(`
   UPDATE ads SET
-    image_url=$1,
-    link=$2,
-    link_type=$3,
-    start_date=$4,
-    end_date=$5,
-    start_time=$6,
-    end_time=$7
-  WHERE id=$8
-  RETURNING *
-`, [image_url, link, link_type, start_date, end_date, start_time, end_time, id]);
+  image_url=$1,
+  link=$2,
+  link_type=$3,
+  start_at=$4,
+  end_at=$5
+WHERE id=$6
+RETURNING *
+`, [image_url, link, link_type, start_at, end_at, id]);
 
 return res.json(result.rows[0]);
 
