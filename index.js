@@ -722,7 +722,7 @@ const result = await db.query(`
     end_at,
     is_active
   )
-  VALUES ($1,$2,$3,$4,$5,true)
+  VALUES ($1,$2,$3,$4,$5,$6,true)
   RETURNING *
 `, [
   title,
