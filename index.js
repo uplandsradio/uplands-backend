@@ -685,6 +685,7 @@ app.post('/api/admin/ads', async (req, res) => {
 
   const {
   id,
+  title,
   image_url,
   link,
   link_type,
@@ -697,14 +698,15 @@ app.post('/api/admin/ads', async (req, res) => {
       // UPDATE
       const result = await db.query(`
   UPDATE ads SET
-  image_url=$1,
-  link=$2,
-  link_type=$3,
-  start_at=$4,
-  end_at=$5
-WHERE id=$6
+  title=$1,
+  image_url=$2,
+  link=$3,
+  link_type=$4,
+  start_at=$5,
+  end_at=$6
+WHERE id=$7
 RETURNING *
-`, [image_url, link, link_type, start_at, end_at, id]);
+`, [title, image_url, link, link_type, start_at, end_at, id]);
 
 return res.json(result.rows[0]);
 
@@ -712,6 +714,7 @@ return res.json(result.rows[0]);
       // INSERT
 const result = await db.query(`
   INSERT INTO ads (
+  title,
     image_url,
     link,
     link_type,
@@ -722,6 +725,7 @@ const result = await db.query(`
   VALUES ($1,$2,$3,$4,$5,true)
   RETURNING *
 `, [
+  title,
   image_url,
   link,
   link_type,
